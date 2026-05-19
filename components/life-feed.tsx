@@ -432,8 +432,16 @@ export function LifeFeed() {
   }
 
   return (
-    <main className="min-h-screen bg-paper pb-[calc(10rem+env(safe-area-inset-bottom))] text-ink">
-      <header className="sticky top-0 z-30 border-b border-black/5 bg-paper/88 backdrop-blur-xl">
+    <main className="relative min-h-screen overflow-x-hidden bg-transparent pb-[calc(10rem+env(safe-area-inset-bottom))] text-ink">
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 -z-20 bg-[url('/brand/chat-background.png')] bg-cover bg-center bg-no-repeat"
+      />
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 -z-10 bg-white/70 backdrop-blur-[1px]"
+      />
+      <header className="sticky top-0 z-30 border-b border-black/5 bg-paper/76 backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2.5">
             <Image
@@ -520,7 +528,7 @@ export function LifeFeed() {
         </div>
       </section>
 
-      <section className="fixed inset-x-0 bottom-0 z-40 border-t border-black/8 bg-paper/94 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">
+      <section className="fixed inset-x-0 bottom-0 z-40 border-t border-black/8 bg-paper/82 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">
         <div className="mx-auto max-w-3xl">
           {!hasPublishedPost && !draft.trim() ? (
             <div className="no-scrollbar mb-2 flex gap-2 overflow-x-auto">
