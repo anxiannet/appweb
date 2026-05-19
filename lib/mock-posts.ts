@@ -12,6 +12,17 @@ const rawPosts = [
   ["1小时前", "小郑", "zheng", "Tampines附近有没有靠谱修空调师傅，房东一直拖"],
 ];
 
+const relativeMinutes: Record<string, number> = {
+  "3分钟前": 3,
+  "7分钟前": 7,
+  "12分钟前": 12,
+  "18分钟前": 18,
+  "26分钟前": 26,
+  "34分钟前": 34,
+  "48分钟前": 48,
+  "1小时前": 60,
+};
+
 export const seedPosts: FeedPost[] = rawPosts.map(([createdAt, author, handle, body], index) => ({
   id: `seed-${index}`,
   author,
@@ -19,6 +30,7 @@ export const seedPosts: FeedPost[] = rawPosts.map(([createdAt, author, handle, b
   avatar: author.slice(0, 1),
   body,
   createdAt,
+  createdAtMs: Date.now() - (relativeMinutes[createdAt] ?? 0) * 60_000,
   replies: [4, 2, 1, 6, 9, 3, 5, 2][index],
   meta: structurePost(body),
 }));

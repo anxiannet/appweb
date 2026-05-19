@@ -27,6 +27,7 @@ export type FeedPost = {
   avatar: string;
   body: string;
   createdAt: string;
+  createdAtMs: number;
   replies: number;
   meta: StructuredMeta;
 };
