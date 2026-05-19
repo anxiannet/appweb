@@ -2,15 +2,22 @@
 
 import {
   Bell,
+  LoaderCircle,
+  LogIn,
+  LogOut,
+  Mail,
   Plus,
   Search,
   SendHorizontal,
+  UserRound,
+  X,
 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { structurePost } from "@/lib/ai-structure";
 import { seedPosts } from "@/lib/mock-posts";
 import { createClient } from "@/lib/supabase/client";
 import type { Channel, FeedPost } from "@/lib/types";
+import type { User } from "@supabase/supabase-js";
 
 const channels: Channel[] = [
   "全部",
@@ -32,23 +39,68 @@ const suggestions = [
 ];
 
 const timeGroupGapMs = 10 * 60 * 1000;
+const anonymousVisitorKey = "sg-life-feed-anonymous-visitor";
+
+type AuthMode = "sign-in" | "sign-up";
+
+type AuthMessage = {
+  tone: "good" | "bad" | "quiet";
+  text: string;
+};
+
+type LifePostRow = {
+  id: string;
+  created_at?: string;
+  body: string;
+  author_name?: string | null;
+  author_handle?: string | null;
+  category: FeedPost["meta"]["category"];
+  district?: string | null;
+  school?: string | null;
+  price?: string | null;
+  time_hint?: string | null;
+  place?: string | null;
+  tags?: string[] | null;
+  ai_summary?: string | null;
+  reply_count?: number | null;
+};
+
+type FeedIdentity = {
+  author: string;
+  handle: string;
+  avatar: string;
+};
 
 export function LifeFeed() {
   const [activeChannel, setActiveChannel] = useState<Channel>("全部");
   const [posts, setPosts] = useState<FeedPost[]>(seedPosts);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
+  const [user, setUser] = useState<User | null>(null);
+  const [anonymousIdentity, setAnonymousIdentity] = useState<FeedIdentity | null>(
+    null,
+  );
+  const [authOpen, setAuthOpen] = useState(false);
   const [isConnected] = useState(
     Boolean(
       process.env.NEXT_PUBLIC_SUPABASE_URL &&
         process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     ),
   );
+  const supabase = useMemo(() => createClient(), []);
+  const currentIdentity = user ? getSignedInUserIdentity(user) : anonymousIdentity;
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const feedEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const supabase = createClient();
+    const timeout = window.setTimeout(() => {
+      setAnonymousIdentity(getAnonymousVisitorIdentity());
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
     if (!supabase) return;
 
     supabase
@@ -67,7 +119,10 @@ export function LifeFeed() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "life_posts" },
         (payload) => {
-          setPosts((current) => [mapSupabasePost(payload.new), ...current]);
+          setPosts((current) => [
+            mapSupabasePost(payload.new as LifePostRow),
+            ...current,
+          ]);
         },
       )
       .subscribe();
@@ -75,7 +130,26 @@ export function LifeFeed() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) setAuthOpen(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
 
   useEffect(() => {
     const composer = composerRef.current;
@@ -116,11 +190,14 @@ export function LifeFeed() {
 
     const meta = structurePost(body);
     const createdAtMs = Date.now();
+    const identity = user
+      ? getSignedInUserIdentity(user)
+      : (anonymousIdentity ?? getAnonymousVisitorIdentity());
     const post: FeedPost = {
       id: `local-${createdAtMs}`,
-      author: "刚刚来的你",
-      handle: "@local",
-      avatar: "你",
+      author: identity.author,
+      handle: identity.handle,
+      avatar: identity.avatar,
       body,
       createdAt: "刚刚",
       createdAtMs,
@@ -132,13 +209,13 @@ export function LifeFeed() {
     setDraft("");
     composerRef.current?.focus();
 
-    const supabase = createClient();
     if (!supabase) return;
 
     await supabase.from("life_posts").insert({
       body,
       author_name: post.author,
       author_handle: post.handle,
+      author_id: user?.id ?? null,
       category: meta.category,
       district: meta.district,
       school: meta.school,
@@ -163,10 +240,18 @@ export function LifeFeed() {
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-2.5">
           <div className="min-w-0">
             <p className="text-[11px] font-medium text-leaf">新加坡华人生活流</p>
-            <h1 className="text-xl font-semibold tracking-normal">狮城生活流</h1>
+            <h1 className="text-xl font-semibold tracking-normal">维界</h1>
           </div>
           <div className="flex items-center gap-2">
             <StatusPill live={isConnected} />
+            <AuthButton
+              connected={isConnected}
+              user={user}
+              onOpen={() => setAuthOpen(true)}
+              onSignOut={() => {
+                void supabase?.auth.signOut();
+              }}
+            />
             <button
               className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-ink shadow-sm"
               aria-label="通知"
@@ -220,7 +305,7 @@ export function LifeFeed() {
             return (
               <Fragment key={post.id}>
                 {showTime ? <TimeDivider label={post.createdAt} /> : null}
-                <PostBubble post={post} />
+                <PostBubble post={post} currentHandle={currentIdentity?.handle} />
               </Fragment>
             );
           })}
@@ -271,6 +356,17 @@ export function LifeFeed() {
           </div>
         </div>
       </section>
+
+      {authOpen ? (
+        <AuthSheet
+          connected={isConnected}
+          onClose={() => setAuthOpen(false)}
+          onSignedIn={(nextUser) => {
+            setUser(nextUser);
+            setAuthOpen(false);
+          }}
+        />
+      ) : null}
     </main>
   );
 }
@@ -286,6 +382,240 @@ function StatusPill({ live }: { live: boolean }) {
   );
 }
 
+function AuthButton({
+  connected,
+  user,
+  onOpen,
+  onSignOut,
+}: {
+  connected: boolean;
+  user: User | null;
+  onOpen: () => void;
+  onSignOut: () => void;
+}) {
+  if (!connected) {
+    return (
+      <button
+        className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-black/35 shadow-sm"
+        aria-label="演示模式暂不可登录"
+        title="演示模式暂不可登录"
+      >
+        <UserRound size={17} />
+      </button>
+    );
+  }
+
+  if (!user) {
+    return (
+      <button
+        onClick={onOpen}
+        className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-ink shadow-sm"
+        aria-label="登录或注册"
+      >
+        <LogIn size={18} />
+      </button>
+    );
+  }
+
+  const identity = getSignedInUserIdentity(user);
+
+  return (
+    <button
+      onClick={onSignOut}
+      className="flex h-10 items-center gap-2 rounded-full border border-black/8 bg-white pl-2 pr-3 text-sm text-black/62 shadow-sm"
+      aria-label="退出登录"
+      title="退出登录"
+    >
+      <span className="grid h-6 w-6 place-items-center rounded-full bg-coral text-xs font-semibold text-white">
+        {identity.avatar}
+      </span>
+      <LogOut size={15} />
+    </button>
+  );
+}
+
+function AuthSheet({
+  connected,
+  onClose,
+  onSignedIn,
+}: {
+  connected: boolean;
+  onClose: () => void;
+  onSignedIn: (user: User) => void;
+}) {
+  const [mode, setMode] = useState<AuthMode>("sign-in");
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState<AuthMessage>({
+    tone: "quiet",
+    text: "登录后发帖会显示一个轻量昵称；不影响浏览公开内容。",
+  });
+  const [busy, setBusy] = useState(false);
+  const supabase = useMemo(() => createClient(), []);
+
+  async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !connected) {
+      setMessage({ tone: "bad", text: "当前没有配置 Supabase，暂时只能浏览演示内容。" });
+      return;
+    }
+
+    const cleanEmail = email.trim();
+    const cleanName = displayName.trim();
+
+    if (!cleanEmail || password.length < 6) {
+      setMessage({ tone: "bad", text: "请填写邮箱，并使用至少 6 位密码。" });
+      return;
+    }
+
+    setBusy(true);
+    setMessage({ tone: "quiet", text: "正在处理..." });
+
+    const result =
+      mode === "sign-in"
+        ? await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password,
+          })
+        : await supabase.auth.signUp({
+            email: cleanEmail,
+            password,
+            options: {
+              data: {
+                display_name: cleanName || cleanEmail.split("@")[0],
+              },
+            },
+          });
+
+    setBusy(false);
+
+    if (result.error) {
+      setMessage({ tone: "bad", text: result.error.message });
+      return;
+    }
+
+    if (result.data.session?.user) {
+      onSignedIn(result.data.session.user);
+      return;
+    }
+
+    setMessage({
+      tone: "good",
+      text: "注册邮件已经发出，请先去邮箱确认，再回来登录。",
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/18 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-16 backdrop-blur-sm">
+      <div className="mx-auto max-w-3xl">
+        <form
+          onSubmit={submitAuth}
+          className="ml-auto w-full max-w-sm rounded-lg border border-black/8 bg-paper p-3 shadow-lift"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <div className="inline-flex rounded-full bg-white p-1 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setMode("sign-in")}
+                className={`h-8 rounded-full px-3 text-sm ${
+                  mode === "sign-in"
+                    ? "bg-leaf text-white"
+                    : "text-black/55"
+                }`}
+              >
+                登录
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("sign-up")}
+                className={`h-8 rounded-full px-3 text-sm ${
+                  mode === "sign-up"
+                    ? "bg-leaf text-white"
+                    : "text-black/55"
+                }`}
+              >
+                注册
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid h-9 w-9 place-items-center rounded-full bg-white text-black/55 shadow-sm"
+              aria-label="关闭"
+            >
+              <X size={17} />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {mode === "sign-up" ? (
+              <label className="flex h-11 items-center gap-2 rounded-lg border border-black/8 bg-white px-3">
+                <UserRound size={16} className="shrink-0 text-black/35" />
+                <input
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  placeholder="群里怎么称呼你"
+                  className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-black/35"
+                />
+              </label>
+            ) : null}
+
+            <label className="flex h-11 items-center gap-2 rounded-lg border border-black/8 bg-white px-3">
+              <Mail size={16} className="shrink-0 text-black/35" />
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="邮箱"
+                className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-black/35"
+                autoComplete="email"
+              />
+            </label>
+
+            <label className="flex h-11 items-center gap-2 rounded-lg border border-black/8 bg-white px-3">
+              <span className="grid h-4 w-4 place-items-center text-xs text-black/35">
+                *
+              </span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="密码"
+                className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-black/35"
+                autoComplete={
+                  mode === "sign-in" ? "current-password" : "new-password"
+                }
+              />
+            </label>
+          </div>
+
+          <p
+            className={`mt-3 min-h-5 text-xs ${
+              message.tone === "bad"
+                ? "text-coral"
+                : message.tone === "good"
+                  ? "text-leaf"
+                  : "text-black/45"
+            }`}
+          >
+            {message.text}
+          </p>
+
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-full bg-coral px-4 text-sm font-medium text-white shadow-sm disabled:bg-black/18"
+          >
+            {busy ? <LoaderCircle size={16} className="animate-spin" /> : null}
+            {mode === "sign-in" ? "进入生活流" : "注册账号"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function TimeDivider({ label }: { label: string }) {
   return (
     <div className="flex justify-center py-1">
@@ -296,8 +626,16 @@ function TimeDivider({ label }: { label: string }) {
   );
 }
 
-function PostBubble({ post }: { post: FeedPost }) {
-  const isMine = post.handle === "@local" || post.id.startsWith("local-");
+function PostBubble({
+  post,
+  currentHandle,
+}: {
+  post: FeedPost;
+  currentHandle?: string;
+}) {
+  const isMine =
+    post.id.startsWith("local-") ||
+    (Boolean(currentHandle) && post.handle === currentHandle);
   const identity = getDisplayIdentity(post);
 
   return (
@@ -335,9 +673,17 @@ function PostBubble({ post }: { post: FeedPost }) {
 }
 
 function getDisplayIdentity(post: FeedPost) {
+  if (post.handle.startsWith("@anon_")) {
+    return {
+      author: post.author,
+      avatar: post.avatar,
+    };
+  }
+
   const isAnonymous =
     post.author.includes("匿名") ||
     post.handle.toLowerCase().includes("anon") ||
+    post.handle === "@local" ||
     post.handle === "@sg";
 
   if (!isAnonymous) {
@@ -355,14 +701,63 @@ function getDisplayIdentity(post: FeedPost) {
   };
 }
 
+function getSignedInUserIdentity(user: User) {
+  const displayName = getStringMetadata(user, "display_name");
+  const emailPrefix = user.email?.split("@")[0] ?? "sg";
+  const author = displayName || emailPrefix;
+
+  return {
+    author,
+    handle: `@${emailPrefix.replace(/[^a-zA-Z0-9_]/g, "").slice(0, 18) || "sg"}`,
+    avatar: author.slice(0, 1).toUpperCase(),
+  };
+}
+
+function getAnonymousVisitorIdentity() {
+  const visitorId = getAnonymousVisitorId();
+  const anonymousNumber = String(hashText(visitorId) % 1000).padStart(3, "0");
+
+  return {
+    author: `共振者 ${anonymousNumber}`,
+    handle: `@anon_${visitorId.slice(0, 8)}`,
+    avatar: anonymousNumber.slice(-2),
+  };
+}
+
+function getAnonymousVisitorId() {
+  if (typeof window === "undefined") return createAnonymousVisitorId();
+
+  const storedVisitorId = window.localStorage.getItem(anonymousVisitorKey);
+  if (storedVisitorId) return storedVisitorId;
+
+  const visitorId = createAnonymousVisitorId();
+  window.localStorage.setItem(anonymousVisitorKey, visitorId);
+  return visitorId;
+}
+
+function createAnonymousVisitorId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  }
+
+  return Math.random().toString(36).slice(2, 18).padEnd(16, "0");
+}
+
+function getStringMetadata(user: User, key: string) {
+  const value = user.user_metadata[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function hashText(value: string) {
   return Array.from(value).reduce((hash, character) => {
     return (hash * 31 + character.charCodeAt(0)) >>> 0;
   }, 7);
 }
 
-function mapSupabasePost(row: Record<string, any>): FeedPost {
-  const createdAtMs = row.created_at ? new Date(row.created_at).getTime() : Date.now();
+function mapSupabasePost(row: LifePostRow): FeedPost {
+  const createdAtMs = row.created_at
+    ? new Date(row.created_at).getTime()
+    : Date.now();
 
   return {
     id: String(row.id),

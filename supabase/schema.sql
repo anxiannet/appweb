@@ -3,6 +3,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.life_posts (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
+  author_id uuid references auth.users(id) on delete set null,
   body text not null check (char_length(body) between 1 and 500),
   author_name text not null default '匿名用户',
   author_handle text,
@@ -31,7 +32,10 @@ create policy "anyone can publish short public life posts"
 on public.life_posts
 for insert
 to anon, authenticated
-with check (char_length(body) between 1 and 500);
+with check (
+  char_length(body) between 1 and 500
+  and (author_id is null or auth.uid() = author_id)
+);
 
 grant usage on schema public to anon, authenticated;
 grant select, insert on public.life_posts to anon, authenticated;

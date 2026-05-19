@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "狮城生活流",
+  title: "维界",
   description: "新加坡本地华人的公开版微信群。",
 };
 
