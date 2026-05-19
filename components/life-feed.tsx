@@ -432,14 +432,14 @@ export function LifeFeed() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden bg-transparent pb-[calc(10rem+env(safe-area-inset-bottom))] text-ink">
+    <main className="relative isolate min-h-screen overflow-x-hidden bg-transparent pb-[calc(10rem+env(safe-area-inset-bottom))] text-ink">
       <div
         aria-hidden="true"
-        className="fixed inset-0 -z-20 bg-[url('/brand/chat-background.png')] bg-cover bg-center bg-no-repeat"
+        className="pointer-events-none fixed inset-0 z-0 bg-[url('/brand/chat-background.png')] bg-cover bg-center bg-no-repeat"
       />
       <div
         aria-hidden="true"
-        className="fixed inset-0 -z-10 bg-white/70 backdrop-blur-[1px]"
+        className="pointer-events-none fixed inset-0 z-0 bg-white/68 backdrop-blur-[1px]"
       />
       <header className="sticky top-0 z-30 border-b border-black/5 bg-paper/76 backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-2.5">
@@ -505,7 +505,7 @@ export function LifeFeed() {
         </section>
       </header>
 
-      <section className="mx-auto max-w-3xl px-4 pt-4">
+      <section className="relative z-10 mx-auto max-w-3xl px-4 pt-4">
         <div className="mb-3 flex items-center justify-between text-xs text-black/45">
           <span>最近24小时 · 最新在下面</span>
           <span>{filteredPosts.length} 条正在流动</span>
