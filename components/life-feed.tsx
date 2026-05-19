@@ -432,7 +432,7 @@ export function LifeFeed() {
   }
 
   return (
-    <main className="relative isolate min-h-screen overflow-x-hidden bg-transparent pb-[calc(10rem+env(safe-area-inset-bottom))] text-ink">
+    <main className="relative isolate min-h-screen overflow-x-hidden bg-transparent pb-[calc(10rem+env(safe-area-inset-bottom))] pt-[9.75rem] text-ink">
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 z-0 bg-[url('/brand/chat-background.png')] bg-cover bg-center bg-no-repeat"
@@ -441,7 +441,7 @@ export function LifeFeed() {
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 z-0 bg-white/68 backdrop-blur-[1px]"
       />
-      <header className="sticky top-0 z-30 border-b border-black/5 bg-paper/76 backdrop-blur-xl">
+      <header className="fixed inset-x-0 top-0 z-30 border-b border-black/5 bg-paper/76 backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2.5">
             <Image
