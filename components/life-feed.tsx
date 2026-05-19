@@ -48,6 +48,8 @@ type AuthMessage = {
   text: string;
 };
 
+type ComposerMessage = AuthMessage;
+
 type LifePostRow = {
   id: string;
   created_at?: string;
@@ -77,6 +79,10 @@ export function LifeFeed() {
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const [user, setUser] = useState<User | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [composerMessage, setComposerMessage] = useState<ComposerMessage | null>(
+    null,
+  );
   const [anonymousIdentity, setAnonymousIdentity] = useState<FeedIdentity | null>(
     null,
   );
@@ -108,7 +114,15 @@ export function LifeFeed() {
       .select("*")
       .order("created_at", { ascending: false })
       .limit(30)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          setComposerMessage({
+            tone: "bad",
+            text: `读取实时消息失败：${error.message}`,
+          });
+          return;
+        }
+
         if (!data?.length) return;
         setPosts(data.map(mapSupabasePost));
       });
@@ -119,10 +133,12 @@ export function LifeFeed() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "life_posts" },
         (payload) => {
-          setPosts((current) => [
-            mapSupabasePost(payload.new as LifePostRow),
-            ...current,
-          ]);
+          const nextPost = mapSupabasePost(payload.new as LifePostRow);
+          setPosts((current) =>
+            current.some((post) => post.id === nextPost.id)
+              ? current
+              : [nextPost, ...current],
+          );
         },
       )
       .subscribe();
@@ -186,7 +202,7 @@ export function LifeFeed() {
 
   async function publishPost() {
     const body = draft.trim();
-    if (!body) return;
+    if (!body || isPublishing) return;
 
     const meta = structurePost(body);
     const createdAtMs = Date.now();
@@ -205,26 +221,66 @@ export function LifeFeed() {
       meta,
     };
 
-    setPosts((current) => [post, ...current]);
-    setDraft("");
-    composerRef.current?.focus();
+    if (!supabase) {
+      setPosts((current) => [post, ...current]);
+      setDraft("");
+      setComposerMessage({
+        tone: "quiet",
+        text: "当前是演示模式，这条只会显示在你自己的浏览器里。",
+      });
+      composerRef.current?.focus();
+      return;
+    }
 
-    if (!supabase) return;
+    setIsPublishing(true);
+    setComposerMessage({ tone: "quiet", text: "正在发到公开生活群..." });
 
-    await supabase.from("life_posts").insert({
-      body,
-      author_name: post.author,
-      author_handle: post.handle,
-      author_id: user?.id ?? null,
-      category: meta.category,
-      district: meta.district,
-      school: meta.school,
-      price: meta.price,
-      time_hint: meta.time,
-      place: meta.place,
-      tags: meta.tags,
-      ai_summary: meta.summary,
-    });
+    try {
+      const { data, error } = await supabase
+        .from("life_posts")
+        .insert({
+          body,
+          author_name: post.author,
+          author_handle: post.handle,
+          category: meta.category,
+          district: meta.district,
+          school: meta.school,
+          price: meta.price,
+          time_hint: meta.time,
+          place: meta.place,
+          tags: meta.tags,
+          ai_summary: meta.summary,
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        setComposerMessage({
+          tone: "bad",
+          text: `发布失败：${error.message}`,
+        });
+        composerRef.current?.focus();
+        return;
+      }
+
+      const savedPost = mapSupabasePost(data as LifePostRow);
+      setPosts((current) =>
+        current.some((item) => item.id === savedPost.id)
+          ? current
+          : [savedPost, ...current],
+      );
+      setDraft("");
+      setComposerMessage({ tone: "good", text: "已发布，其他人刷新后也能看到。" });
+      composerRef.current?.focus();
+    } catch (error) {
+      setComposerMessage({
+        tone: "bad",
+        text: `发布失败：${getErrorMessage(error)}`,
+      });
+      composerRef.current?.focus();
+    } finally {
+      setIsPublishing(false);
+    }
   }
 
   function publishOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -329,6 +385,20 @@ export function LifeFeed() {
             </div>
           ) : null}
 
+          {composerMessage ? (
+            <p
+              className={`mb-2 px-1 text-xs ${
+                composerMessage.tone === "bad"
+                  ? "text-coral"
+                  : composerMessage.tone === "good"
+                    ? "text-leaf"
+                    : "text-black/45"
+              }`}
+            >
+              {composerMessage.text}
+            </p>
+          ) : null}
+
           <div className="flex items-end gap-2">
             <button
               className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-full border border-black/8 bg-white text-black/55 shadow-sm"
@@ -347,11 +417,15 @@ export function LifeFeed() {
             />
             <button
               onClick={publishPost}
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || isPublishing}
               className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-full bg-coral text-white shadow-sm transition disabled:bg-black/15 disabled:shadow-none"
               aria-label="发布"
             >
-              <SendHorizontal size={18} />
+              {isPublishing ? (
+                <LoaderCircle size={18} className="animate-spin" />
+              ) : (
+                <SendHorizontal size={18} />
+              )}
             </button>
           </div>
         </div>
@@ -746,6 +820,10 @@ function createAnonymousVisitorId() {
 function getStringMetadata(user: User, key: string) {
   const value = user.user_metadata[key];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "网络或数据库请求异常";
 }
 
 function hashText(value: string) {
