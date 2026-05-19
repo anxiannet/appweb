@@ -12,6 +12,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { structurePost } from "@/lib/ai-structure";
 import { seedPosts } from "@/lib/mock-posts";
@@ -39,7 +40,11 @@ const suggestions = [
 ];
 
 const timeGroupGapMs = 10 * 60 * 1000;
+const recentFeedWindowMs = 24 * 60 * 60 * 1000;
 const anonymousVisitorKey = "sg-life-feed-anonymous-visitor";
+const hasPublishedPostKey = "sg-life-feed-has-published-post";
+const postImagesBucket = "life-post-images";
+const maxImageSizeBytes = 5 * 1024 * 1024;
 
 type AuthMode = "sign-in" | "sign-up";
 
@@ -64,6 +69,7 @@ type LifePostRow = {
   place?: string | null;
   tags?: string[] | null;
   ai_summary?: string | null;
+  image_path?: string | null;
   reply_count?: number | null;
 };
 
@@ -87,6 +93,8 @@ export function LifeFeed() {
     null,
   );
   const [authOpen, setAuthOpen] = useState(false);
+  const [hasPublishedPost, setHasPublishedPost] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [isConnected] = useState(
     Boolean(
       process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -97,23 +105,36 @@ export function LifeFeed() {
   const currentIdentity = user ? getSignedInUserIdentity(user) : anonymousIdentity;
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const feedEndRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setAnonymousIdentity(getAnonymousVisitorIdentity());
+      setHasPublishedPost(hasVisitorPublishedPost());
     }, 0);
 
     return () => window.clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 60_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (!supabase) return;
+
+    const feedWindowStart = new Date(Date.now() - recentFeedWindowMs).toISOString();
 
     supabase
       .from("life_posts")
       .select("*")
+      .gte("created_at", feedWindowStart)
       .order("created_at", { ascending: false })
-      .limit(30)
+      .limit(100)
       .then(({ data, error }) => {
         if (error) {
           setComposerMessage({
@@ -123,8 +144,7 @@ export function LifeFeed() {
           return;
         }
 
-        if (!data?.length) return;
-        setPosts(data.map(mapSupabasePost));
+        setPosts(data?.map(mapSupabasePost) ?? []);
       });
 
     const channel = supabase
@@ -134,6 +154,8 @@ export function LifeFeed() {
         { event: "INSERT", schema: "public", table: "life_posts" },
         (payload) => {
           const nextPost = mapSupabasePost(payload.new as LifePostRow);
+          if (!isRecentPost(nextPost, Date.now())) return;
+
           setPosts((current) =>
             current.some((post) => post.id === nextPost.id)
               ? current
@@ -176,7 +198,10 @@ export function LifeFeed() {
   }, [draft]);
 
   const filteredPosts = useMemo(() => {
+    const feedWindowStartMs = nowMs - recentFeedWindowMs;
+
     return posts.filter((post) => {
+      const inRecentWindow = post.createdAtMs >= feedWindowStartMs;
       const inChannel =
         activeChannel === "全部" || post.meta.category === activeChannel;
       const query = search.trim().toLowerCase();
@@ -188,9 +213,9 @@ export function LifeFeed() {
           .toLowerCase()
           .includes(query);
 
-      return inChannel && inSearch;
+      return inRecentWindow && inChannel && inSearch;
     });
-  }, [activeChannel, posts, search]);
+  }, [activeChannel, nowMs, posts, search]);
 
   const displayedPosts = useMemo(() => {
     return [...filteredPosts].reverse();
@@ -199,6 +224,40 @@ export function LifeFeed() {
   useEffect(() => {
     feedEndRef.current?.scrollIntoView({ block: "end" });
   }, [displayedPosts.length, activeChannel, search]);
+
+  function publishLocalPost(post: FeedPost, message: ComposerMessage) {
+    setPosts((current) =>
+      current.some((item) => item.id === post.id) ? current : [post, ...current],
+    );
+    setDraft("");
+    markVisitorHasPublishedPost();
+    setHasPublishedPost(true);
+    setComposerMessage(message);
+    composerRef.current?.focus();
+  }
+
+  async function publishRemotePost(post: FeedPost) {
+    const { data, error } = await supabase!
+      .from("life_posts")
+      .insert({
+        body: post.body,
+        author_name: post.author,
+        author_handle: post.handle,
+        category: post.meta.category,
+        district: post.meta.district,
+        school: post.meta.school,
+        price: post.meta.price,
+        time_hint: post.meta.time,
+        place: post.meta.place,
+        tags: post.meta.tags,
+        ai_summary: post.meta.summary,
+        image_path: post.imagePath,
+      })
+      .select("*")
+      .single();
+
+    return { data, error };
+  }
 
   async function publishPost() {
     const body = draft.trim();
@@ -222,13 +281,10 @@ export function LifeFeed() {
     };
 
     if (!supabase) {
-      setPosts((current) => [post, ...current]);
-      setDraft("");
-      setComposerMessage({
+      publishLocalPost(post, {
         tone: "quiet",
         text: "当前是演示模式，这条只会显示在你自己的浏览器里。",
       });
-      composerRef.current?.focus();
       return;
     }
 
@@ -236,30 +292,13 @@ export function LifeFeed() {
     setComposerMessage({ tone: "quiet", text: "正在发到公开生活群..." });
 
     try {
-      const { data, error } = await supabase
-        .from("life_posts")
-        .insert({
-          body,
-          author_name: post.author,
-          author_handle: post.handle,
-          category: meta.category,
-          district: meta.district,
-          school: meta.school,
-          price: meta.price,
-          time_hint: meta.time,
-          place: meta.place,
-          tags: meta.tags,
-          ai_summary: meta.summary,
-        })
-        .select("*")
-        .single();
+      const { data, error } = await publishRemotePost(post);
 
       if (error) {
-        setComposerMessage({
-          tone: "bad",
-          text: `发布失败：${error.message}`,
+        publishLocalPost(post, {
+          tone: "quiet",
+          text: `已显示在本地，暂时没有同步到实时数据库：${error.message}`,
         });
-        composerRef.current?.focus();
         return;
       }
 
@@ -270,14 +309,15 @@ export function LifeFeed() {
           : [savedPost, ...current],
       );
       setDraft("");
-      setComposerMessage({ tone: "good", text: "已发布，其他人刷新后也能看到。" });
+      markVisitorHasPublishedPost();
+      setHasPublishedPost(true);
+      setComposerMessage(null);
       composerRef.current?.focus();
     } catch (error) {
-      setComposerMessage({
-        tone: "bad",
-        text: `发布失败：${getErrorMessage(error)}`,
+      publishLocalPost(post, {
+        tone: "quiet",
+        text: `已显示在本地，暂时没有同步到实时数据库：${getErrorMessage(error)}`,
       });
-      composerRef.current?.focus();
     } finally {
       setIsPublishing(false);
     }
@@ -290,13 +330,124 @@ export function LifeFeed() {
     void publishPost();
   }
 
+  async function publishImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setComposerMessage({ tone: "bad", text: "请选择图片文件。" });
+      return;
+    }
+
+    if (file.size > maxImageSizeBytes) {
+      setComposerMessage({ tone: "bad", text: "图片不能超过 5MB。" });
+      return;
+    }
+
+    const createdAtMs = Date.now();
+    const identity = user
+      ? getSignedInUserIdentity(user)
+      : (anonymousIdentity ?? getAnonymousVisitorIdentity());
+    const body = draft.trim();
+    const meta = structurePost(body || "图片消息");
+    const post: FeedPost = {
+      id: `local-image-${createdAtMs}`,
+      author: identity.author,
+      handle: identity.handle,
+      avatar: identity.avatar,
+      body,
+      imageUrl: URL.createObjectURL(file),
+      createdAt: "刚刚",
+      createdAtMs,
+      replies: 0,
+      meta: { ...meta, tags: Array.from(new Set([...meta.tags, "图片"])) },
+    };
+
+    if (!supabase) {
+      publishLocalPost(post, {
+        tone: "quiet",
+        text: "当前是演示模式，图片只会显示在你自己的浏览器里。",
+      });
+      setComposerMessage(null);
+      return;
+    }
+
+    setIsPublishing(true);
+    setComposerMessage({ tone: "quiet", text: "正在上传图片..." });
+
+    try {
+      const imagePath = makePostImagePath(file, createdAtMs);
+      const { error: uploadError } = await supabase.storage
+        .from(postImagesBucket)
+        .upload(imagePath, file, {
+          cacheControl: "31536000",
+          contentType: file.type,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        publishLocalPost(post, {
+          tone: "quiet",
+          text: `图片已显示在本地，暂时没有上传到 Storage：${uploadError.message}`,
+        });
+        return;
+      }
+
+      const uploadedPost: FeedPost = {
+        ...post,
+        imagePath,
+        imageUrl: getPublicImageUrl(imagePath) ?? post.imageUrl,
+      };
+      const { data, error } = await publishRemotePost(uploadedPost);
+
+      if (error) {
+        publishLocalPost(uploadedPost, {
+          tone: "quiet",
+          text: `图片已上传，但帖子暂时没有同步到实时数据库：${error.message}`,
+        });
+        return;
+      }
+
+      const savedPost = mapSupabasePost(data as LifePostRow);
+      setPosts((current) =>
+        current.some((item) => item.id === savedPost.id)
+          ? current
+          : [savedPost, ...current],
+      );
+      setDraft("");
+      markVisitorHasPublishedPost();
+      setHasPublishedPost(true);
+      setComposerMessage(null);
+      composerRef.current?.focus();
+    } catch (error) {
+      publishLocalPost(post, {
+        tone: "quiet",
+        text: `图片已显示在本地，暂时没有同步到实时数据库：${getErrorMessage(error)}`,
+      });
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-paper pb-[calc(10rem+env(safe-area-inset-bottom))] text-ink">
       <header className="sticky top-0 z-30 border-b border-black/5 bg-paper/88 backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-2.5">
-          <div className="min-w-0">
-            <p className="text-[11px] font-medium text-leaf">新加坡华人生活流</p>
-            <h1 className="text-xl font-semibold tracking-normal">维界</h1>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Image
+              src="/brand/weijie-icon.png"
+              alt="维界"
+              width={40}
+              height={40}
+              priority
+              className="shrink-0 rounded-xl shadow-sm"
+            />
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-leaf">新加坡华人生活流</p>
+              <h1 className="text-xl font-semibold tracking-normal">维界</h1>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <StatusPill live={isConnected} />
@@ -348,7 +499,7 @@ export function LifeFeed() {
 
       <section className="mx-auto max-w-3xl px-4 pt-4">
         <div className="mb-3 flex items-center justify-between text-xs text-black/45">
-          <span>今天 · 最新在下面</span>
+          <span>最近24小时 · 最新在下面</span>
           <span>{filteredPosts.length} 条正在流动</span>
         </div>
         <div className="space-y-3">
@@ -371,7 +522,7 @@ export function LifeFeed() {
 
       <section className="fixed inset-x-0 bottom-0 z-40 border-t border-black/8 bg-paper/94 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">
         <div className="mx-auto max-w-3xl">
-          {!draft.trim() ? (
+          {!hasPublishedPost && !draft.trim() ? (
             <div className="no-scrollbar mb-2 flex gap-2 overflow-x-auto">
               {suggestions.map((item) => (
                 <button
@@ -400,12 +551,6 @@ export function LifeFeed() {
           ) : null}
 
           <div className="flex items-end gap-2">
-            <button
-              className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-full border border-black/8 bg-white text-black/55 shadow-sm"
-              aria-label="添加"
-            >
-              <Plus size={19} />
-            </button>
             <textarea
               ref={composerRef}
               value={draft}
@@ -426,6 +571,23 @@ export function LifeFeed() {
               ) : (
                 <SendHorizontal size={18} />
               )}
+            </button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={publishImage}
+            />
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={isPublishing}
+              className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-full border border-black/8 bg-white text-black/55 shadow-sm"
+              aria-label="发送图片"
+              title="发送图片"
+            >
+              <Plus size={19} />
             </button>
           </div>
         </div>
@@ -732,9 +894,24 @@ function PostBubble({
               : "rounded-tl-sm bg-white"
           }`}
         >
-          <p className="whitespace-pre-wrap break-words text-[15.5px] leading-6">
-            {post.body}
-          </p>
+          {post.imageUrl ? (
+            // Local blob previews cannot be optimized by next/image.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={post.imageUrl}
+              alt="聊天图片"
+              className="max-h-80 w-full rounded-md object-cover"
+            />
+          ) : null}
+          {post.body ? (
+            <p
+              className={`whitespace-pre-wrap break-words text-[15.5px] leading-6 ${
+                post.imageUrl ? "mt-2" : ""
+              }`}
+            >
+              {post.body}
+            </p>
+          ) : null}
         </div>
       </div>
       {isMine ? (
@@ -809,6 +986,18 @@ function getAnonymousVisitorId() {
   return visitorId;
 }
 
+function hasVisitorPublishedPost() {
+  if (typeof window === "undefined") return false;
+
+  return window.localStorage.getItem(hasPublishedPostKey) === "true";
+}
+
+function markVisitorHasPublishedPost() {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(hasPublishedPostKey, "true");
+}
+
 function createAnonymousVisitorId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID().replace(/-/g, "").slice(0, 16);
@@ -843,6 +1032,8 @@ function mapSupabasePost(row: LifePostRow): FeedPost {
     handle: row.author_handle ?? "@sg",
     avatar: (row.author_name ?? "匿").slice(0, 1),
     body: row.body,
+    imagePath: row.image_path ?? undefined,
+    imageUrl: row.image_path ? getPublicImageUrl(row.image_path) : undefined,
     createdAt: formatRelativeTime(row.created_at),
     createdAtMs,
     replies: row.reply_count ?? 0,
@@ -857,6 +1048,39 @@ function mapSupabasePost(row: LifePostRow): FeedPost {
       summary: row.ai_summary ?? row.category,
     },
   };
+}
+
+function isRecentPost(post: FeedPost, nowMs: number) {
+  return post.createdAtMs >= nowMs - recentFeedWindowMs;
+}
+
+function makePostImagePath(file: File, createdAtMs: number) {
+  const extension = getImageExtension(file);
+  const randomPart =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+
+  return `public/${createdAtMs}-${randomPart}.${extension}`;
+}
+
+function getImageExtension(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+
+  if (extension && /^[a-z0-9]+$/.test(extension)) return extension;
+  if (file.type === "image/png") return "png";
+  if (file.type === "image/webp") return "webp";
+  if (file.type === "image/gif") return "gif";
+
+  return "jpg";
+}
+
+function getPublicImageUrl(path: string) {
+  const supabase = createClient();
+
+  if (!supabase) return undefined;
+
+  return supabase.storage.from(postImagesBucket).getPublicUrl(path).data.publicUrl;
 }
 
 function formatRelativeTime(value?: string) {

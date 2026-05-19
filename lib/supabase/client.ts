@@ -1,4 +1,9 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+const globalForSupabase = globalThis as typeof globalThis & {
+  __sgLifeSupabaseClient?: SupabaseClient;
+};
 
 export function createClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -8,5 +13,7 @@ export function createClient() {
     return null;
   }
 
-  return createSupabaseClient(url, key);
+  globalForSupabase.__sgLifeSupabaseClient ??= createSupabaseClient(url, key);
+
+  return globalForSupabase.__sgLifeSupabaseClient;
 }
