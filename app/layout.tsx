@@ -8,14 +8,14 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/favicon.ico" },
-      { url: "/brand/weijie-icon.png", sizes: "512x512", type: "image/png" },
+      { url: "/brand/weijie-icon-20260520.png", sizes: "512x512", type: "image/png" },
     ],
-    apple: [{ url: "/brand/apple-icon.png", sizes: "180x180", type: "image/png" }],
+    apple: [{ url: "/brand/apple-icon-20260520.png", sizes: "180x180", type: "image/png" }],
   },
   openGraph: {
     title: "维界",
     description: "连接真实生活的另一维度",
-    images: [{ url: "/brand/weijie-logo.png", width: 786, height: 311 }],
+    images: [{ url: "/brand/weijie-logo-20260520.png", width: 1818, height: 382 }],
   },
 };
 

@@ -9,7 +9,6 @@ import {
   Plus,
   Search,
   SendHorizontal,
-  Sticker,
   UserRound,
   X,
 } from "lucide-react";
@@ -498,6 +497,10 @@ export function LifeFeed() {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const feedEndRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const stickerCategoryScrollerRef = useRef<HTMLDivElement>(null);
+  const stickerCategoryButtonRefs = useRef<
+    Partial<Record<StickerPackId, HTMLButtonElement | null>>
+  >({});
   const stickerScrollerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -625,6 +628,7 @@ export function LifeFeed() {
     const scroller = stickerScrollerRef.current;
 
     setActiveStickerPackId(packId);
+    scrollStickerCategoryToIndex(packIndex, "smooth");
     if (!scroller || packIndex < 0) return;
 
     scroller.scrollTo({
@@ -637,14 +641,67 @@ export function LifeFeed() {
     const scroller = stickerScrollerRef.current;
     if (!scroller || scroller.clientWidth === 0) return;
 
+    const packProgress = scroller.scrollLeft / scroller.clientWidth;
+    syncStickerCategoryScroll(packProgress);
+
     const packIndex = Math.min(
       stickerPacks.length - 1,
-      Math.max(0, Math.round(scroller.scrollLeft / scroller.clientWidth)),
+      Math.max(0, Math.round(packProgress)),
     );
     const nextPack = stickerPacks[packIndex];
     if (nextPack && nextPack.id !== activeStickerPackId) {
       setActiveStickerPackId(nextPack.id);
     }
+  }
+
+  function getStickerCategoryScrollLeft(packIndex: number) {
+    const categoryScroller = stickerCategoryScrollerRef.current;
+    const pack = stickerPacks[packIndex];
+    const button = pack ? stickerCategoryButtonRefs.current[pack.id] : null;
+    if (!categoryScroller || !button) return 0;
+
+    const centeredLeft =
+      button.offsetLeft - (categoryScroller.clientWidth - button.offsetWidth) / 2;
+    const maxScrollLeft = Math.max(
+      0,
+      categoryScroller.scrollWidth - categoryScroller.clientWidth,
+    );
+
+    return Math.min(
+      maxScrollLeft,
+      Math.max(0, centeredLeft),
+    );
+  }
+
+  function scrollStickerCategoryToIndex(
+    packIndex: number,
+    behavior: ScrollBehavior = "auto",
+  ) {
+    const categoryScroller = stickerCategoryScrollerRef.current;
+    if (!categoryScroller || packIndex < 0) return;
+
+    categoryScroller.scrollTo({
+      left: getStickerCategoryScrollLeft(packIndex),
+      behavior,
+    });
+  }
+
+  function syncStickerCategoryScroll(packProgress: number) {
+    const categoryScroller = stickerCategoryScrollerRef.current;
+    if (!categoryScroller) return;
+
+    const boundedProgress = Math.min(
+      stickerPacks.length - 1,
+      Math.max(0, packProgress),
+    );
+    const fromIndex = Math.floor(boundedProgress);
+    const toIndex = Math.min(stickerPacks.length - 1, fromIndex + 1);
+    const travelProgress = boundedProgress - fromIndex;
+    const fromLeft = getStickerCategoryScrollLeft(fromIndex);
+    const toLeft = getStickerCategoryScrollLeft(toIndex);
+
+    categoryScroller.scrollLeft =
+      fromLeft + (toLeft - fromLeft) * travelProgress;
   }
 
   function publishLocalPost(post: FeedPost, message: ComposerMessage) {
@@ -958,22 +1015,22 @@ export function LifeFeed() {
     <main className="relative isolate min-h-screen overflow-x-hidden bg-transparent pb-[calc(8rem+env(safe-area-inset-bottom))] pt-[5.75rem] text-ink">
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-0 z-0 bg-[url('/brand/chat-background.png')] bg-cover bg-center bg-no-repeat opacity-30"
+        className="pointer-events-none fixed inset-0 z-0 bg-[url('/brand/sg-life-background.png')] bg-cover bg-center bg-no-repeat opacity-80"
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-0 z-0 bg-paper/82 backdrop-blur-[1px]"
+        className="pointer-events-none fixed inset-0 z-0 bg-paper/45"
       />
       <header className="fixed inset-x-0 top-0 z-30 border-b border-[#eadfce] bg-paper/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <div className="flex min-w-0 items-center">
             <Image
-              src="/brand/weijie-logo.png"
+              src="/brand/weijie-logo-header-wide-20260520.png"
               alt="维界"
-              width={177}
-              height={70}
+              width={206}
+              height={60}
               priority
-              className="h-14 w-auto shrink-0 object-contain"
+              className="h-[3.25rem] w-auto shrink-0 object-contain"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -1081,7 +1138,19 @@ export function LifeFeed() {
               aria-label="表情包"
               title="表情包"
             >
-              <Sticker size={18} />
+              <span
+                className={`grid h-8 w-8 place-items-center rounded-full ${
+                  stickerOpen ? "bg-paper/95" : "bg-transparent"
+                }`}
+              >
+                <Image
+                  src="/brand/sticker-button-icon.png"
+                  alt=""
+                  width={32}
+                  height={32}
+                  className="h-8 w-8 object-contain"
+                />
+              </span>
             </button>
             <button
               onClick={() => {
@@ -1129,10 +1198,16 @@ export function LifeFeed() {
 
           {stickerOpen ? (
             <div className="mt-2 rounded-[1.35rem] border border-black/8 bg-white/96 p-2 shadow-bubble">
-              <div className="no-scrollbar mb-2 flex gap-1 overflow-x-auto rounded-full bg-black/[0.04] p-1">
+              <div
+                ref={stickerCategoryScrollerRef}
+                className="no-scrollbar mb-2 flex gap-1 overflow-x-auto rounded-full bg-black/[0.04] p-1"
+              >
                 {stickerPacks.map((pack) => (
                   <button
                     key={pack.id}
+                    ref={(node) => {
+                      stickerCategoryButtonRefs.current[pack.id] = node;
+                    }}
                     type="button"
                     onClick={() => scrollToStickerPack(pack.id)}
                     className={`h-7 shrink-0 rounded-full px-3 text-xs font-medium transition ${
