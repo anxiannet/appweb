@@ -36,33 +36,401 @@ const hasPublishedPostKey = "sg-life-feed-has-published-post";
 const hasAcceptedTermsKey = "sg-life-feed-has-accepted-terms";
 const postImagesBucket = "life-post-images";
 const maxImageSizeBytes = 5 * 1024 * 1024;
-const stickerSheetPath = "/stickers/sg-life-stickers.png";
 const stickerColumns = 5;
 const stickerRows = 4;
+const stickerSheetWidth = 1500;
+const stickerSheetHeight = 1000;
 
-const stickers = [
-  { id: "milk-tea", label: "请喝奶茶", column: 0, row: 0 },
-  { id: "eat", label: "请吃饭啦", column: 1, row: 0 },
-  { id: "hard-work", label: "辛苦啦", column: 2, row: 0 },
-  { id: "house-luck", label: "找房好运", column: 3, row: 0 },
-  { id: "pr", label: "恭喜上岸", column: 4, row: 0 },
-  { id: "hot", label: "神帖！", column: 0, row: 1 },
-  { id: "helpful", label: "很有帮助", column: 1, row: 1 },
-  { id: "save-me", label: "救我一命", column: 2, row: 1 },
-  { id: "hug", label: "抱抱你", column: 3, row: 1 },
-  { id: "good-night", label: "晚安啦", column: 4, row: 1 },
-  { id: "student-life", label: "留子日常", column: 0, row: 2 },
-  { id: "wallet", label: "钱包流泪", column: 1, row: 2 },
-  { id: "avoid", label: "避雷！", column: 2, row: 2 },
-  { id: "peek", label: "吃瓜中", column: 3, row: 2 },
-  { id: "finals", label: "期末加油", column: 4, row: 2 },
-  { id: "graduated", label: "上岸啦！", column: 0, row: 3 },
-  { id: "rain", label: "坡县下雨了", column: 1, row: 3 },
-  { id: "mosquito", label: "被蚊子咬了", column: 2, row: 3 },
-  { id: "mrt", label: "地铁又坏了", column: 3, row: 3 },
-  { id: "sg-verified", label: "新加坡认证", column: 4, row: 3 },
+const stickerPacks = [
+  {
+    id: "life",
+    label: "生活",
+    sheetPath: "/stickers/sg-life-stickers.png",
+    stickers: [
+      { id: "milk-tea", label: "请喝奶茶", column: 0, row: 0 },
+      { id: "eat", label: "请吃饭啦", column: 1, row: 0 },
+      { id: "hard-work", label: "辛苦啦", column: 2, row: 0 },
+      { id: "house-luck", label: "找房好运", column: 3, row: 0 },
+      { id: "pr", label: "恭喜上岸", column: 4, row: 0 },
+      { id: "hot", label: "神帖！", column: 0, row: 1 },
+      { id: "helpful", label: "很有帮助", column: 1, row: 1 },
+      { id: "save-me", label: "救我一命", column: 2, row: 1 },
+      { id: "hug", label: "抱抱你", column: 3, row: 1 },
+      { id: "good-night", label: "晚安啦", column: 4, row: 1 },
+      { id: "student-life", label: "留子日常", column: 0, row: 2 },
+      { id: "wallet", label: "钱包流泪", column: 1, row: 2 },
+      { id: "avoid", label: "避雷！", column: 2, row: 2 },
+      { id: "peek", label: "吃瓜中", column: 3, row: 2 },
+      { id: "finals", label: "期末加油", column: 4, row: 2 },
+      { id: "graduated", label: "上岸啦！", column: 0, row: 3 },
+      { id: "rain", label: "坡县下雨了", column: 1, row: 3 },
+      { id: "mosquito", label: "被蚊子咬了", column: 2, row: 3 },
+      { id: "mrt", label: "地铁又坏了", column: 3, row: 3 },
+      { id: "sg-verified", label: "新加坡认证", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "reactions",
+    label: "本地",
+    sheetPath: "/stickers/sg-local-reactions.png",
+    stickers: [
+      { id: "great", label: "太棒了", column: 0, row: 0 },
+      { id: "moved", label: "感动到哭", column: 1, row: 0 },
+      { id: "wow", label: "哇塞", column: 2, row: 0 },
+      { id: "got-it", label: "懂了懂了", column: 3, row: 0 },
+      { id: "explain-please", label: "求科普", column: 4, row: 0 },
+      { id: "come-see", label: "快来看", column: 0, row: 1 },
+      { id: "warm", label: "暖心", column: 1, row: 1 },
+      { id: "cheer-up", label: "加油鸭", column: 2, row: 1 },
+      { id: "please", label: "拜托了", column: 3, row: 1 },
+      { id: "excited", label: "期待住了", column: 4, row: 1 },
+      { id: "hug-cat", label: "抱抱", column: 0, row: 2 },
+      { id: "waiting-bus", label: "等车中", column: 1, row: 2 },
+      { id: "check-in", label: "打卡成功", column: 2, row: 2 },
+      { id: "want-food", label: "想吃这个", column: 3, row: 2 },
+      { id: "money-gone", label: "钱飞走了", column: 4, row: 2 },
+      { id: "bad-weather", label: "天气好差", column: 0, row: 3 },
+      { id: "many-mosquitoes", label: "蚊子好多", column: 1, row: 3 },
+      { id: "crossing", label: "过关中", column: 2, row: 3 },
+      { id: "to-jb", label: "去JB咯", column: 3, row: 3 },
+      { id: "just-saw", label: "刚刚看到", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "daily",
+    label: "日常",
+    sheetPath: "/stickers/sg-daily-reactions.png",
+    stickers: [
+      { id: "nice", label: "太赞了", column: 0, row: 0 },
+      { id: "thanks-share", label: "谢谢分享", column: 1, row: 0 },
+      { id: "really", label: "真的吗", column: 2, row: 0 },
+      { id: "understood", label: "明白了", column: 3, row: 0 },
+      { id: "question", label: "有问题", column: 4, row: 0 },
+      { id: "bump", label: "顶起来", column: 0, row: 1 },
+      { id: "love-it", label: "爱了爱了", column: 1, row: 1 },
+      { id: "go", label: "冲鸭！", column: 2, row: 1 },
+      { id: "too-hard", label: "太难了", column: 3, row: 1 },
+      { id: "lol", label: "笑死我了", column: 4, row: 1 },
+      { id: "screenshot", label: "已截图", column: 0, row: 2 },
+      { id: "carpool", label: "拼车滴滴", column: 1, row: 2 },
+      { id: "tea-time", label: "下午茶走起", column: 2, row: 2 },
+      { id: "meal-online", label: "干饭人上线", column: 3, row: 2 },
+      { id: "buy-buy-buy", label: "买买买", column: 4, row: 2 },
+      { id: "low-battery", label: "电量不足", column: 0, row: 3 },
+      { id: "working", label: "工作ing", column: 1, row: 3 },
+      { id: "offer", label: "收到offer啦", column: 2, row: 3 },
+      { id: "departure", label: "准备出发", column: 3, row: 3 },
+      { id: "happy-trip", label: "旅行愉快", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "study",
+    label: "留学",
+    sheetPath: "/stickers/sg-study-stickers.png",
+    stickers: [
+      { id: "go-abroad", label: "准备出国啦", column: 0, row: 0 },
+      { id: "studying", label: "努力学习中", column: 1, row: 0 },
+      { id: "offer-received", label: "收到offer啦", column: 2, row: 0 },
+      { id: "thrilled", label: "太激动了", column: 3, row: 0 },
+      { id: "departing", label: "出发咯", column: 4, row: 0 },
+      { id: "arrived-sg", label: "初到新加坡", column: 0, row: 1 },
+      { id: "confused", label: "一脸懵逼", column: 1, row: 1 },
+      { id: "student-pass", label: "学生证get", column: 2, row: 1 },
+      { id: "all-nighter", label: "熬夜赶due", column: 3, row: 1 },
+      { id: "study-pressure", label: "压力山大", column: 4, row: 1 },
+      { id: "exam-done", label: "考试考完啦", column: 0, row: 2 },
+      { id: "happy-meal", label: "干饭最快乐", column: 1, row: 2 },
+      { id: "commute-life", label: "通勤日常", column: 2, row: 2 },
+      { id: "new-friends", label: "认识新朋友", column: 3, row: 2 },
+      { id: "writing-essay", label: "写essay中", column: 4, row: 2 },
+      { id: "miss-family", label: "想念家人", column: 0, row: 3 },
+      { id: "life-helper", label: "生活小能手", column: 1, row: 3 },
+      { id: "weekend-fun", label: "周末去玩啦", column: 2, row: 3 },
+      { id: "graduated", label: "顺利毕业啦", column: 3, row: 3 },
+      { id: "future", label: "未来可期", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "work",
+    label: "打工",
+    sheetPath: "/stickers/sg-work-stickers.png",
+    stickers: [
+      { id: "worker-cheer", label: "打工人加油", column: 0, row: 0 },
+      { id: "start-work", label: "开始搬砖", column: 1, row: 0 },
+      { id: "deadline", label: "赶工中...", column: 2, row: 0 },
+      { id: "done-work", label: "搞定收工", column: 3, row: 0 },
+      { id: "off-work", label: "下班啦", column: 4, row: 0 },
+      { id: "working-shift", label: "打工进行时", column: 0, row: 1 },
+      { id: "focused-work", label: "认真工作中", column: 1, row: 1 },
+      { id: "taking-orders", label: "接单中", column: 2, row: 1 },
+      { id: "busy", label: "忙碌中", column: 3, row: 1 },
+      { id: "serving", label: "服务中", column: 4, row: 1 },
+      { id: "big-head", label: "头大..", column: 0, row: 2 },
+      { id: "tired", label: "好累啊", column: 1, row: 2 },
+      { id: "overtime", label: "加班中", column: 2, row: 2 },
+      { id: "payday", label: "发工资啦", column: 3, row: 2 },
+      { id: "reward", label: "努力有回报", column: 4, row: 2 },
+      { id: "thin-wallet", label: "钱包好瘦", column: 0, row: 3 },
+      { id: "quick-meal", label: "随便解决一餐", column: 1, row: 3 },
+      { id: "scheduled", label: "排班中", column: 2, row: 3 },
+      { id: "on-commute", label: "通勤路上", column: 3, row: 3 },
+      { id: "sleep-early", label: "早睡养生", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "housing",
+    label: "找房",
+    sheetPath: "/stickers/sg-housing-stickers.png",
+    stickers: [
+      { id: "house-luck", label: "找房好运", column: 0, row: 0 },
+      { id: "searching-house", label: "正在找房", column: 1, row: 0 },
+      { id: "lead-received", label: "收到房源啦", column: 2, row: 0 },
+      { id: "heart-house", label: "这个好心动", column: 3, row: 0 },
+      { id: "negotiate-price", label: "价格可以再谈吗", column: 4, row: 0 },
+      { id: "viewing-appointment", label: "约看房", column: 0, row: 1 },
+      { id: "viewing", label: "去看房啦", column: 1, row: 1 },
+      { id: "satisfied", label: "房子很满意", column: 2, row: 1 },
+      { id: "reserved", label: "拿下啦", column: 3, row: 1 },
+      { id: "landed", label: "成功上岸", column: 4, row: 1 },
+      { id: "over-budget", label: "预算超了", column: 0, row: 2 },
+      { id: "wallet-cannot", label: "钱包扛不住", column: 1, row: 2 },
+      { id: "rented-out", label: "房子已租", column: 2, row: 2 },
+      { id: "no-agent", label: "不考虑中介", column: 3, row: 2 },
+      { id: "recommend-house", label: "求推荐房源", column: 4, row: 2 },
+      { id: "roommate", label: "求室友", column: 0, row: 3 },
+      { id: "moving", label: "准备搬家", column: 1, row: 3 },
+      { id: "contract", label: "签合同啦", column: 2, row: 3 },
+      { id: "leaking", label: "漏水了", column: 3, row: 3 },
+      { id: "landlord-no-reply", label: "房东不回复", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "food",
+    label: "干饭",
+    sheetPath: "/stickers/sg-food-stickers.png",
+    stickers: [
+      { id: "meal-time", label: "开饭啦", column: 0, row: 0 },
+      { id: "too-delicious", label: "好吃到飞起", column: 1, row: 0 },
+      { id: "thanks-treat", label: "感谢投喂", column: 2, row: 0 },
+      { id: "amazing-food", label: "绝绝子！", column: 3, row: 0 },
+      { id: "praise", label: "赞赞赞", column: 4, row: 0 },
+      { id: "tea-time", label: "下午茶走起", column: 0, row: 1 },
+      { id: "milk-tea-life", label: "奶茶续命", column: 1, row: 1 },
+      { id: "hotpot", label: "火锅最棒了", column: 2, row: 1 },
+      { id: "too-spicy", label: "太辣了啦", column: 3, row: 1 },
+      { id: "local-food", label: "本地美食yyds", column: 4, row: 1 },
+      { id: "photo-first", label: "先拍照再吃", column: 0, row: 2 },
+      { id: "happy-food", label: "好幸福呀", column: 1, row: 2 },
+      { id: "one-more-bowl", label: "再来一碗！", column: 2, row: 2 },
+      { id: "light-food", label: "清淡最舒服", column: 3, row: 2 },
+      { id: "takeaway", label: "打包带走", column: 4, row: 2 },
+      { id: "seafood-feast", label: "海鲜大餐", column: 0, row: 3 },
+      { id: "kaya-breakfast", label: "咖椰早餐", column: 1, row: 3 },
+      { id: "drink-together", label: "一起干杯", column: 2, row: 3 },
+      { id: "meal-online", label: "干饭人上线", column: 3, row: 3 },
+      { id: "full", label: "吃饱饱啦", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "city",
+    label: "新加坡",
+    sheetPath: "/stickers/sg-city-stickers.png",
+    stickers: [
+      { id: "love-sg", label: "爱新加坡", column: 0, row: 0 },
+      { id: "beautiful-view", label: "风景太美啦", column: 1, row: 0 },
+      { id: "nets", label: "本地支付真方便", column: 2, row: 0 },
+      { id: "weekend-shopping", label: "周末去逛街", column: 3, row: 0 },
+      { id: "food-many", label: "美食太多啦", column: 4, row: 0 },
+      { id: "transport", label: "出行超方便", column: 0, row: 1 },
+      { id: "rent-good", label: "住组屋也很棒", column: 1, row: 1 },
+      { id: "gov-service", label: "政府服务很贴心", column: 2, row: 1 },
+      { id: "ezlink", label: "ezlink走天下", column: 3, row: 1 },
+      { id: "changi", label: "樟宜机场yyds", column: 4, row: 1 },
+      { id: "hawker", label: "食阁超赞！", column: 0, row: 2 },
+      { id: "park-walk", label: "公园散步好舒服", column: 1, row: 2 },
+      { id: "sg-weather", label: "坡县天气说变就变", column: 2, row: 2 },
+      { id: "discounts", label: "各种优惠真香", column: 3, row: 2 },
+      { id: "seven-eleven", label: "711永远滴神", column: 4, row: 2 },
+      { id: "plants", label: "养花种草ing", column: 0, row: 3 },
+      { id: "recycle", label: "垃圾分类从我做起", column: 1, row: 3 },
+      { id: "cat-life", label: "猫奴日常", column: 2, row: 3 },
+      { id: "check-in", label: "打卡成功！", column: 3, row: 3 },
+      { id: "cozy-home", label: "最喜欢在家躺平", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "commute",
+    label: "通勤",
+    sheetPath: "/stickers/sg-commute-stickers.png",
+    stickers: [
+      { id: "leave-for-work", label: "出门上班啦", column: 0, row: 0 },
+      { id: "coffee", label: "咖啡续命", column: 1, row: 0 },
+      { id: "late", label: "快要迟到啦", column: 2, row: 0 },
+      { id: "tap-in", label: "刷卡进站", column: 3, row: 0 },
+      { id: "hold-tight", label: "抓紧扶手", column: 4, row: 0 },
+      { id: "crowded-peak", label: "早高峰人挤人", column: 0, row: 1 },
+      { id: "scroll-phone", label: "地铁上刷手机", column: 1, row: 1 },
+      { id: "earphones", label: "耳机一戴", column: 2, row: 1 },
+      { id: "nap", label: "小憩一下", column: 3, row: 1 },
+      { id: "route-check", label: "看线路中", column: 4, row: 1 },
+      { id: "view", label: "看看风景", column: 0, row: 2 },
+      { id: "waiting-bus", label: "等巴士中", column: 1, row: 2 },
+      { id: "rain", label: "突然下雨了", column: 2, row: 2 },
+      { id: "sardine", label: "被挤成沙丁鱼", column: 3, row: 2 },
+      { id: "arrived-office", label: "到公司啦", column: 4, row: 2 },
+      { id: "want-off-work", label: "想快点下班", column: 0, row: 3 },
+      { id: "happy-commute", label: "通勤也要开心", column: 1, row: 3 },
+      { id: "catch-train", label: "刚好赶上车", column: 2, row: 3 },
+      { id: "ten-k-steps", label: "今天又破万步", column: 3, row: 3 },
+      { id: "hard-day", label: "辛苦一天啦", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "travel",
+    label: "旅行",
+    sheetPath: "/stickers/sg-travel-stickers.png",
+    stickers: [
+      { id: "come-sg", label: "来新加坡啦", column: 0, row: 0 },
+      { id: "planning", label: "做攻略中", column: 1, row: 0 },
+      { id: "departing", label: "出发咯", column: 2, row: 0 },
+      { id: "beautiful", label: "哇 太美了！", column: 3, row: 0 },
+      { id: "photo-checkin", label: "拍照打卡ing", column: 4, row: 0 },
+      { id: "beach", label: "海边走起", column: 0, row: 1 },
+      { id: "food-hunt", label: "美食探店", column: 1, row: 1 },
+      { id: "shopping", label: "买买买", column: 2, row: 1 },
+      { id: "explore", label: "探索景点", column: 3, row: 1 },
+      { id: "sunset", label: "看日落啦", column: 4, row: 1 },
+      { id: "night-view", label: "夜景太赞了", column: 0, row: 2 },
+      { id: "uss", label: "环球影城嗨翻天", column: 1, row: 2 },
+      { id: "cable-car", label: "坐缆车看风景", column: 2, row: 2 },
+      { id: "moment", label: "记录美好瞬间", column: 3, row: 2 },
+      { id: "vacation", label: "度假模式ON", column: 4, row: 2 },
+      { id: "zoo", label: "动物园好可爱", column: 0, row: 3 },
+      { id: "go-home", label: "准备回国啦", column: 1, row: 3 },
+      { id: "full-luggage", label: "行李满满", column: 2, row: 3 },
+      { id: "next-trip", label: "期待下次旅行", column: 3, row: 3 },
+      { id: "memories", label: "回忆满满", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "weijie",
+    label: "维界",
+    sheetPath: "/stickers/weijie-world-stickers.png",
+    stickers: [
+      { id: "welcome", label: "欢迎来到维界", column: 0, row: 0 },
+      { id: "explore", label: "探索无限维度", column: 1, row: 0 },
+      { id: "encyclopedia", label: "维界百科全书", column: 2, row: 0 },
+      { id: "ideas-world", label: "每个想法都是世界", column: 3, row: 0 },
+      { id: "portal", label: "穿梭不同维度", column: 4, row: 0 },
+      { id: "partner", label: "维界伙伴相伴", column: 0, row: 1 },
+      { id: "guardian", label: "成为维界守护者", column: 1, row: 1 },
+      { id: "create-world", label: "创造属于你的世界", column: 2, row: 1 },
+      { id: "build-all", label: "万物皆可构建", column: 3, row: 1 },
+      { id: "bgm", label: "维界BGM启动", column: 4, row: 1 },
+      { id: "choose-dimension", label: "选择你的维度", column: 0, row: 2 },
+      { id: "network", label: "连接维界网络", column: 1, row: 2 },
+      { id: "inner-expand", label: "内观即是扩展", column: 2, row: 2 },
+      { id: "inner-energy", label: "能量源自内心", column: 3, row: 2 },
+      { id: "unlock-world", label: "不断解锁新世界", column: 4, row: 2 },
+      { id: "same-frequency", label: "在维界遇见同频的你", column: 0, row: 3 },
+      { id: "plant-idea", label: "种下想法，收获世界", column: 1, row: 3 },
+      { id: "mirror", label: "镜像映照本心", column: 2, row: 3 },
+      { id: "co-create", label: "共创·共建·共享", column: 3, row: 3 },
+      { id: "next-stop", label: "下一站，维界更远处", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "resonance",
+    label: "共振",
+    sheetPath: "/stickers/weijie-resonance-stickers.png",
+    stickers: [
+      { id: "detected", label: "检测到共振", column: 0, row: 0 },
+      { id: "connected", label: "连接已建立", column: 1, row: 0 },
+      { id: "dimension-up", label: "维度提升", column: 2, row: 0 },
+      { id: "sync-success", label: "同步成功", column: 3, row: 0 },
+      { id: "node-online", label: "高维节点在线", column: 4, row: 0 },
+      { id: "medium-generated", label: "界质产生", column: 0, row: 1 },
+      { id: "connection-stable", label: "连接稳定中", column: 1, row: 1 },
+      { id: "reality-stable", label: "现实结构稳定", column: 2, row: 1 },
+      { id: "anchor-built", label: "维锚已建立", column: 3, row: 1 },
+      { id: "dimension-syncing", label: "维度同步中", column: 4, row: 1 },
+      { id: "calibrating", label: "正在校准维度", column: 0, row: 2 },
+      { id: "signal-syncing", label: "信号同步中", column: 1, row: 2 },
+      { id: "crossing", label: "正在穿越边界", column: 2, row: 2 },
+      { id: "emotion-synced", label: "情绪同步成功", column: 3, row: 2 },
+      { id: "reality-rift", label: "检测到现实裂缝", column: 4, row: 2 },
+      { id: "path-opened", label: "路径已展开", column: 0, row: 3 },
+      { id: "entered-weijie", label: "已进入维界", column: 1, row: 3 },
+      { id: "medium-stable", label: "界质稳定中", column: 2, row: 3 },
+      { id: "cognition-up", label: "认知层级提升", column: 3, row: 3 },
+      { id: "migration-recorded", label: "已记录维度迁移", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "agent",
+    label: "节点",
+    sheetPath: "/stickers/weijie-agent-stickers.png",
+    stickers: [
+      { id: "medium-refill", label: "界质补充", column: 0, row: 0 },
+      { id: "resonance-detected", label: "检测到共振", column: 1, row: 0 },
+      { id: "low-dimensional-sleep", label: "低维休眠", column: 2, row: 0 },
+      { id: "high-resonance", label: "高共鸣", column: 3, row: 0 },
+      { id: "dimension-sync", label: "维度同步", column: 4, row: 0 },
+      { id: "connecting", label: "正在连接", column: 0, row: 1 },
+      { id: "cognition-up", label: "认知提升", column: 1, row: 1 },
+      { id: "stable-reality", label: "稳定现实", column: 2, row: 1 },
+      { id: "anchor-issue", label: "发现维锚", column: 3, row: 1 },
+      { id: "rift-warning", label: "裂界警告", column: 4, row: 1 },
+      { id: "observing", label: "高维观察中", column: 0, row: 2 },
+      { id: "route-analysis", label: "路径解析", column: 1, row: 2 },
+      { id: "upgrade-done", label: "完成升维", column: 2, row: 2 },
+      { id: "medium-low", label: "界质不足", column: 3, row: 2 },
+      { id: "reality-wave", label: "现实波动", column: 4, row: 2 },
+      { id: "emotion-noise", label: "情绪噪声", column: 0, row: 3 },
+      { id: "bio-attack", label: "低维生物攻击", column: 1, row: 3 },
+      { id: "dimension-break", label: "维度突破", column: 2, row: 3 },
+      { id: "cognition-pollution", label: "认知污染", column: 3, row: 3 },
+      { id: "sg-node", label: "新加坡节点", column: 4, row: 3 },
+    ],
+  },
+  {
+    id: "helper",
+    label: "助手",
+    sheetPath: "/stickers/weijie-helper-stickers.png",
+    stickers: [
+      { id: "hello", label: "你好呀", column: 0, row: 0 },
+      { id: "received", label: "收到！", column: 1, row: 0 },
+      { id: "question", label: "有问题~", column: 2, row: 0 },
+      { id: "like", label: "赞！", column: 3, row: 0 },
+      { id: "thanks", label: "感谢~", column: 4, row: 0 },
+      { id: "notice", label: "重要通知", column: 0, row: 1 },
+      { id: "are-you-there", label: "在吗？", column: 1, row: 1 },
+      { id: "working-hard", label: "努力中...", column: 2, row: 1 },
+      { id: "great", label: "太棒啦！", column: 3, row: 1 },
+      { id: "depart", label: "出发咯~", column: 4, row: 1 },
+      { id: "meal", label: "干饭啦！", column: 0, row: 2 },
+      { id: "milk-tea", label: "喝杯奶茶~", column: 1, row: 2 },
+      { id: "rest", label: "休息一下", column: 2, row: 2 },
+      { id: "rain", label: "下雨啦", column: 3, row: 2 },
+      { id: "good-night", label: "晚安~", column: 4, row: 2 },
+      { id: "too-hard", label: "我太难了", column: 0, row: 3 },
+      { id: "wow", label: "哇哦！", column: 1, row: 3 },
+      { id: "routing", label: "找路线中", column: 2, row: 3 },
+      { id: "let-me-see", label: "我找看...", column: 3, row: 3 },
+      { id: "see-you", label: "下次见~", column: 4, row: 3 },
+    ],
+  },
 ] as const;
 
+const stickers = stickerPacks.flatMap((pack) =>
+  pack.stickers.map((sticker) => ({
+    ...sticker,
+    packId: pack.id,
+    sheetPath: pack.sheetPath,
+  })),
+);
+
+type StickerPackId = (typeof stickerPacks)[number]["id"];
 type StickerItem = (typeof stickers)[number];
 
 type AuthMode = "sign-in" | "sign-up";
@@ -115,6 +483,8 @@ export function LifeFeed() {
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [hasPublishedPost, setHasPublishedPost] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
+  const [activeStickerPackId, setActiveStickerPackId] =
+    useState<StickerPackId>("life");
   const [pendingSticker, setPendingSticker] = useState<StickerItem | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isConnected] = useState(
@@ -128,6 +498,7 @@ export function LifeFeed() {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const feedEndRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const stickerScrollerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -241,10 +612,40 @@ export function LifeFeed() {
   const displayedPosts = useMemo(() => {
     return [...filteredPosts].reverse();
   }, [filteredPosts]);
+  const activeStickerPack =
+    stickerPacks.find((pack) => pack.id === activeStickerPackId) ??
+    stickerPacks[0];
 
   useEffect(() => {
     feedEndRef.current?.scrollIntoView({ block: "end" });
   }, [displayedPosts.length, search]);
+
+  function scrollToStickerPack(packId: StickerPackId) {
+    const packIndex = stickerPacks.findIndex((pack) => pack.id === packId);
+    const scroller = stickerScrollerRef.current;
+
+    setActiveStickerPackId(packId);
+    if (!scroller || packIndex < 0) return;
+
+    scroller.scrollTo({
+      left: scroller.clientWidth * packIndex,
+      behavior: "smooth",
+    });
+  }
+
+  function updateActiveStickerPackFromScroll() {
+    const scroller = stickerScrollerRef.current;
+    if (!scroller || scroller.clientWidth === 0) return;
+
+    const packIndex = Math.min(
+      stickerPacks.length - 1,
+      Math.max(0, Math.round(scroller.scrollLeft / scroller.clientWidth)),
+    );
+    const nextPack = stickerPacks[packIndex];
+    if (nextPack && nextPack.id !== activeStickerPackId) {
+      setActiveStickerPackId(nextPack.id);
+    }
+  }
 
   function publishLocalPost(post: FeedPost, message: ComposerMessage) {
     setPosts((current) =>
@@ -496,8 +897,8 @@ export function LifeFeed() {
       handle: identity.handle,
       avatar: identity.avatar,
       body: "",
-      imagePath: makeStickerPath(sticker.id),
-      imageUrl: makeStickerPath(sticker.id),
+      imagePath: makeStickerPath(sticker),
+      imageUrl: makeStickerPath(sticker),
       createdAt: "刚刚",
       createdAtMs,
       replies: 0,
@@ -664,28 +1065,6 @@ export function LifeFeed() {
             </p>
           ) : null}
 
-          {stickerOpen ? (
-            <div className="mb-2 rounded-[1.35rem] border border-black/8 bg-white/96 p-2 shadow-bubble">
-              <div className="grid grid-cols-5 gap-1.5">
-                {stickers.map((sticker) => (
-                  <button
-                    key={sticker.id}
-                    type="button"
-                    onClick={() => {
-                      void publishSticker(sticker);
-                    }}
-                    disabled={isPublishing}
-                    className="aspect-[6/5] rounded-lg border border-transparent bg-[#fffaf2] p-1 transition hover:border-coral/35 disabled:opacity-55"
-                    aria-label={`发送表情包：${sticker.label}`}
-                    title={sticker.label}
-                  >
-                    <StickerSprite sticker={sticker} size="picker" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           <div className="flex items-end gap-2">
             <textarea
               ref={composerRef}
@@ -751,6 +1130,58 @@ export function LifeFeed() {
               <Plus size={19} />
             </button>
           </div>
+
+          {stickerOpen ? (
+            <div className="mt-2 rounded-[1.35rem] border border-black/8 bg-white/96 p-2 shadow-bubble">
+              <div className="no-scrollbar mb-2 flex gap-1 overflow-x-auto rounded-full bg-black/[0.04] p-1">
+                {stickerPacks.map((pack) => (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    onClick={() => scrollToStickerPack(pack.id)}
+                    className={`h-7 shrink-0 rounded-full px-3 text-xs font-medium transition ${
+                      activeStickerPack.id === pack.id
+                        ? "bg-white text-leaf shadow-bubble"
+                        : "text-black/45"
+                    }`}
+                    aria-pressed={activeStickerPack.id === pack.id}
+                  >
+                    {pack.label}
+                  </button>
+                ))}
+              </div>
+              <div
+                ref={stickerScrollerRef}
+                onScroll={updateActiveStickerPackFromScroll}
+                className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto scroll-smooth"
+              >
+                {stickerPacks.map((pack) => (
+                  <div
+                    key={pack.id}
+                    className="grid min-w-full shrink-0 snap-start grid-cols-5 gap-1.5"
+                  >
+                    {stickers
+                      .filter((sticker) => sticker.packId === pack.id)
+                      .map((sticker) => (
+                        <button
+                          key={`${sticker.packId}-${sticker.id}`}
+                          type="button"
+                          onClick={() => {
+                            void publishSticker(sticker);
+                          }}
+                          disabled={isPublishing}
+                          className="aspect-[6/5] rounded-lg border border-transparent bg-[#fffaf2] p-1 transition hover:border-coral/35 disabled:opacity-55"
+                          aria-label={`发送表情包：${sticker.label}`}
+                          title={sticker.label}
+                        >
+                          <StickerSprite sticker={sticker} size="picker" />
+                        </button>
+                      ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -1294,26 +1725,34 @@ function StickerSprite({
   sticker: StickerItem;
   size: "message" | "picker";
 }) {
-  const backgroundPosition = `${getSpritePosition(
-    sticker.column,
-    stickerColumns,
-  )}% ${getSpritePosition(sticker.row, stickerRows)}%`;
-
   return (
     <span
-      className={`block bg-no-repeat ${
+      className={`relative block overflow-hidden ${
         size === "message"
           ? "h-40 w-48 max-w-[68vw] rounded-lg"
           : "h-full w-full rounded-md"
       }`}
       role="img"
       aria-label={sticker.label}
-      style={{
-        backgroundImage: `url(${stickerSheetPath})`,
-        backgroundPosition,
-        backgroundSize: `${stickerColumns * 100}% ${stickerRows * 100}%`,
-      }}
-    />
+    >
+      <Image
+        src={sticker.sheetPath}
+        alt=""
+        aria-hidden
+        draggable={false}
+        width={stickerSheetWidth}
+        height={stickerSheetHeight}
+        unoptimized
+        className="absolute left-0 top-0 max-w-none select-none"
+        style={{
+          width: `${stickerColumns * 100}%`,
+          height: `${stickerRows * 100}%`,
+          transform: `translate(-${sticker.column * 20}%, -${
+            sticker.row * 25
+          }%)`,
+        }}
+      />
+    </span>
   );
 }
 
@@ -1478,21 +1917,19 @@ function makePostImagePath(file: File, createdAtMs: number) {
   return `public/${createdAtMs}-${randomPart}.${extension}`;
 }
 
-function makeStickerPath(stickerId: StickerItem["id"]) {
-  return `${stickerSheetPath}#${stickerId}`;
+function makeStickerPath(sticker: StickerItem) {
+  return `${sticker.sheetPath}#${sticker.id}`;
 }
 
 function getStickerFromPath(path: string) {
-  if (!path.startsWith(`${stickerSheetPath}#`)) return null;
+  const [sheetPath, stickerId] = path.split("#");
+  if (!sheetPath || !stickerId) return null;
 
-  const stickerId = path.split("#")[1];
-  return stickers.find((sticker) => sticker.id === stickerId) ?? null;
-}
-
-function getSpritePosition(index: number, count: number) {
-  if (count <= 1) return 0;
-
-  return (index / (count - 1)) * 100;
+  return (
+    stickers.find(
+      (sticker) => sticker.sheetPath === sheetPath && sticker.id === stickerId,
+    ) ?? null
+  );
 }
 
 function getImageExtension(file: File) {
