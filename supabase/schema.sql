@@ -7,6 +7,8 @@ create table if not exists public.life_posts (
   body text not null,
   author_name text not null default '匿名用户',
   author_handle text,
+  author_avatar_index integer,
+  author_avatar_url text,
   category text not null check (
     category in ('租房', '二手', '拼车', '美食', '避雷', '找搭子', '活动', '求职')
   ),
@@ -23,6 +25,12 @@ create table if not exists public.life_posts (
 
 alter table public.life_posts
 add column if not exists image_path text;
+
+alter table public.life_posts
+add column if not exists author_avatar_index integer;
+
+alter table public.life_posts
+add column if not exists author_avatar_url text;
 
 alter table public.life_posts
 drop constraint if exists life_posts_body_check;

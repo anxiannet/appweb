@@ -25,6 +25,8 @@ export type FeedPost = {
   author: string;
   handle: string;
   avatar: string;
+  avatarPoolIndex?: number;
+  avatarUrl?: string;
   body: string;
   imagePath?: string;
   imageUrl?: string;

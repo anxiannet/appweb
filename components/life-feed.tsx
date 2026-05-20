@@ -1,14 +1,13 @@
 "use client";
 
 import {
-  Bell,
   LoaderCircle,
   LogIn,
   LogOut,
   Mail,
+  Menu,
   Plus,
   Search,
-  SendHorizontal,
   UserRound,
   X,
 } from "lucide-react";
@@ -16,7 +15,7 @@ import Image from "next/image";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { seedPosts } from "@/lib/mock-posts";
 import { createClient } from "@/lib/supabase/client";
-import type { FeedPost, StructuredMeta } from "@/lib/types";
+import type { Channel, FeedPost, StructuredMeta } from "@/lib/types";
 import type { User } from "@supabase/supabase-js";
 
 const unifiedCategory: FeedPost["meta"]["category"] = "找搭子";
@@ -27,6 +26,21 @@ const suggestions = [
   "转卖宜家桌子，Clementi自取",
   "这个中介靠谱吗",
 ];
+
+const feedChannels: Channel[] = [
+  "全部",
+  "租房",
+  "二手",
+  "拼车",
+  "美食",
+  "避雷",
+  "找搭子",
+  "活动",
+  "求职",
+];
+const selectableChannels = feedChannels.filter(
+  (channel): channel is Exclude<Channel, "全部"> => channel !== "全部",
+);
 
 const timeGroupGapMs = 10 * 60 * 1000;
 const feedPageSize = 20;
@@ -39,6 +53,13 @@ const stickerColumns = 5;
 const stickerRows = 4;
 const stickerSheetWidth = 1500;
 const stickerSheetHeight = 1000;
+const anonymousAvatarSheetPath = "/avatars/anonymous-faces.png";
+const anonymousAvatarColumns = 12;
+const anonymousAvatarRows = 10;
+const anonymousAvatarCellSize = 112;
+const anonymousAvatarSheetWidth = anonymousAvatarColumns * anonymousAvatarCellSize;
+const anonymousAvatarSheetHeight = anonymousAvatarRows * anonymousAvatarCellSize;
+const anonymousAvatarDisplaySize = 36;
 
 const stickerPacks = [
   {
@@ -447,6 +468,8 @@ type LifePostRow = {
   body: string;
   author_name?: string | null;
   author_handle?: string | null;
+  author_avatar_index?: number | null;
+  author_avatar_url?: string | null;
   category: FeedPost["meta"]["category"];
   district?: string | null;
   school?: string | null;
@@ -463,6 +486,15 @@ type FeedIdentity = {
   author: string;
   handle: string;
   avatar: string;
+  avatarPoolIndex?: number;
+  avatarUrl?: string;
+};
+
+type DisplayIdentity = {
+  author: string;
+  avatar: string;
+  avatarPoolIndex?: number;
+  avatarUrl?: string;
 };
 
 export function LifeFeed() {
@@ -483,7 +515,9 @@ export function LifeFeed() {
   const [anonymousIdentity, setAnonymousIdentity] = useState<FeedIdentity | null>(
     null,
   );
+  const [menuOpen, setMenuOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>("sign-in");
   const [termsOpen, setTermsOpen] = useState(false);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [hasPublishedPost, setHasPublishedPost] = useState(false);
@@ -491,6 +525,9 @@ export function LifeFeed() {
   const [activeStickerPackId, setActiveStickerPackId] =
     useState<StickerPackId>("life");
   const [pendingSticker, setPendingSticker] = useState<StickerItem | null>(null);
+  const [selectedChannels, setSelectedChannels] = useState<
+    Exclude<Channel, "全部">[]
+  >([]);
   const [isConnected] = useState(
     Boolean(
       process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -644,6 +681,9 @@ export function LifeFeed() {
   const filteredPosts = useMemo(() => {
     return posts.filter((post) => {
       const query = search.trim().toLowerCase();
+      const inChannel =
+        selectedChannels.length === 0 ||
+        selectedChannels.includes(post.meta.category);
       const inSearch =
         !query ||
         `${post.body} ${post.meta.tags.join(" ")} ${post.meta.district ?? ""} ${
@@ -652,9 +692,9 @@ export function LifeFeed() {
           .toLowerCase()
           .includes(query);
 
-      return inSearch;
+      return inChannel && inSearch;
     });
-  }, [posts, search]);
+  }, [posts, search, selectedChannels]);
 
   const displayedPosts = useMemo(() => {
     return [...filteredPosts].reverse();
@@ -708,7 +748,13 @@ export function LifeFeed() {
 
     scrollToFeedBottom();
     shouldScrollToBottomRef.current = false;
-  }, [displayedPosts.length, latestDisplayedPostId, scrollToFeedBottom, search]);
+  }, [
+    displayedPosts.length,
+    latestDisplayedPostId,
+    scrollToFeedBottom,
+    search,
+    selectedChannels,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -726,7 +772,7 @@ export function LifeFeed() {
 
   useEffect(() => {
     const topMarker = feedTopRef.current;
-    if (!topMarker || search.trim()) return;
+    if (!topMarker || search.trim() || selectedChannels.length > 0) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -740,7 +786,7 @@ export function LifeFeed() {
     observer.observe(topMarker);
 
     return () => observer.disconnect();
-  }, [loadOlderPosts, search]);
+  }, [loadOlderPosts, search, selectedChannels]);
 
   function scrollToStickerPack(packId: StickerPackId) {
     const packIndex = stickerPacks.findIndex((pack) => pack.id === packId);
@@ -836,24 +882,41 @@ export function LifeFeed() {
   }
 
   async function publishRemotePost(post: FeedPost) {
+    const payload = {
+      body: post.body,
+      author_name: post.author,
+      author_handle: post.handle,
+      author_avatar_index: post.avatarPoolIndex,
+      author_avatar_url: post.avatarUrl,
+      category: post.meta.category,
+      district: post.meta.district,
+      school: post.meta.school,
+      price: post.meta.price,
+      time_hint: post.meta.time,
+      place: post.meta.place,
+      tags: post.meta.tags,
+      ai_summary: post.meta.summary,
+      image_path: post.imagePath,
+    };
     const { data, error } = await supabase!
       .from("life_posts")
-      .insert({
-        body: post.body,
-        author_name: post.author,
-        author_handle: post.handle,
-        category: post.meta.category,
-        district: post.meta.district,
-        school: post.meta.school,
-        price: post.meta.price,
-        time_hint: post.meta.time,
-        place: post.meta.place,
-        tags: post.meta.tags,
-        ai_summary: post.meta.summary,
-        image_path: post.imagePath,
-      })
+      .insert(payload)
       .select("*")
       .single();
+
+    if (
+      error &&
+      /author_avatar_(index|url)|life_posts/.test(error.message)
+    ) {
+      const { author_avatar_index, author_avatar_url, ...fallbackPayload } =
+        payload;
+
+      return supabase!
+        .from("life_posts")
+        .insert(fallbackPayload)
+        .select("*")
+        .single();
+    }
 
     return { data, error };
   }
@@ -881,6 +944,8 @@ export function LifeFeed() {
       author: identity.author,
       handle: identity.handle,
       avatar: identity.avatar,
+      avatarPoolIndex: identity.avatarPoolIndex,
+      avatarUrl: identity.avatarUrl,
       body,
       createdAt: "刚刚",
       createdAtMs,
@@ -933,7 +998,8 @@ export function LifeFeed() {
   }
 
   function publishOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey) return;
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
+      return;
 
     event.preventDefault();
     void publishPost();
@@ -975,6 +1041,8 @@ export function LifeFeed() {
       author: identity.author,
       handle: identity.handle,
       avatar: identity.avatar,
+      avatarPoolIndex: identity.avatarPoolIndex,
+      avatarUrl: identity.avatarUrl,
       body,
       imageUrl: URL.createObjectURL(file),
       createdAt: "刚刚",
@@ -1072,6 +1140,8 @@ export function LifeFeed() {
       author: identity.author,
       handle: identity.handle,
       avatar: identity.avatar,
+      avatarPoolIndex: identity.avatarPoolIndex,
+      avatarUrl: identity.avatarUrl,
       body: "",
       imagePath: makeStickerPath(sticker),
       imageUrl: makeStickerPath(sticker),
@@ -1131,7 +1201,7 @@ export function LifeFeed() {
   }
 
   return (
-    <main className="relative isolate min-h-screen overflow-x-hidden bg-transparent pb-[calc(8rem+env(safe-area-inset-bottom))] pt-[5.75rem] text-ink">
+    <main className="relative isolate min-h-screen overflow-x-hidden bg-transparent pb-[calc(8rem+env(safe-area-inset-bottom))] pt-[4.5rem] text-ink">
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 z-0 bg-[url('/brand/sg-life-background.png')] bg-cover bg-center bg-no-repeat opacity-80"
@@ -1152,46 +1222,30 @@ export function LifeFeed() {
               className="h-[3.25rem] w-auto shrink-0 object-contain"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <StatusPill live={isConnected} />
-            <AuthButton
-              connected={isConnected}
-              user={user}
-              onOpen={() => setAuthOpen(true)}
-              onSignOut={() => {
-                void supabase?.auth.signOut();
-              }}
-            />
-            <button
-              className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-ink shadow-bubble"
-              aria-label="通知"
-            >
-              <Bell size={18} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-ink shadow-bubble"
+            aria-label="打开菜单"
+            title="菜单"
+          >
+            <Menu size={19} />
+          </button>
         </div>
-
-        <section className="mx-auto max-w-3xl px-4 pb-3">
-          <div className="flex items-center gap-2 rounded-2xl border border-black/8 bg-white px-3 py-2 shadow-bubble">
-            <Search size={17} className="shrink-0 text-black/40" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="搜地区、学校、预算、避雷..."
-              className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-black/35"
-            />
-          </div>
-        </section>
       </header>
 
       <section className="relative z-10 mx-auto max-w-3xl px-4 pt-4">
         <div className="mb-3 flex items-center justify-between px-1 text-xs text-black/45">
           <span>最新20条 · 下拉看更早</span>
-          <span>公开生活群</span>
+          <span>
+            {selectedChannels.length === 0
+              ? "公开生活群"
+              : selectedChannels.join("、")}
+          </span>
         </div>
         <div className="space-y-3">
           <div ref={feedTopRef} className="h-px" />
-          {search.trim() ? null : (
+          {search.trim() || selectedChannels.length > 0 ? null : (
             <div className="flex justify-center py-1 text-xs text-black/35">
               {isLoadingOlder ? (
                 <span className="inline-flex items-center gap-1.5">
@@ -1262,7 +1316,7 @@ export function LifeFeed() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={publishOnEnter}
-              placeholder="发到公开生活流..."
+              placeholder="发到公开生活流，回车发送..."
               rows={1}
               className="max-h-[120px] min-h-11 flex-1 resize-none rounded-[1.35rem] border border-black/8 bg-white px-4 py-3 text-[16px] leading-5 shadow-bubble outline-none placeholder:text-black/35"
             />
@@ -1289,20 +1343,6 @@ export function LifeFeed() {
                   className="h-8 w-8 object-contain"
                 />
               </span>
-            </button>
-            <button
-              onClick={() => {
-                void publishPost();
-              }}
-              disabled={!draft.trim() || isPublishing}
-              className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-coral text-white shadow-bubble transition disabled:bg-black/15 disabled:shadow-none"
-              aria-label="发布"
-            >
-              {isPublishing ? (
-                <LoaderCircle size={18} className="animate-spin" />
-              ) : (
-                <SendHorizontal size={18} />
-              )}
             </button>
             <input
               ref={imageInputRef}
@@ -1397,11 +1437,37 @@ export function LifeFeed() {
       {authOpen ? (
         <AuthSheet
           connected={isConnected}
+          initialMode={authMode}
           onClose={() => setAuthOpen(false)}
           onSignedIn={(nextUser) => {
             setUser(nextUser);
             setAuthOpen(false);
+            setMenuOpen(false);
           }}
+        />
+      ) : null}
+      {menuOpen ? (
+        <MenuSheet
+          connected={isConnected}
+          user={user}
+          search={search}
+          selectedChannels={selectedChannels}
+          onSearchChange={setSearch}
+          onChannelToggle={(channel) => {
+            setSelectedChannels((current) =>
+              current.includes(channel)
+                ? current.filter((item) => item !== channel)
+                : [...current, channel],
+            );
+          }}
+          onChannelClear={() => setSelectedChannels([])}
+          onAuthOpen={(nextMode) => {
+            setAuthMode(nextMode);
+            setAuthOpen(true);
+            setMenuOpen(false);
+          }}
+          onClose={() => setMenuOpen(false)}
+          onUserChange={setUser}
         />
       ) : null}
       {termsOpen ? (
@@ -1436,79 +1502,18 @@ export function LifeFeed() {
   );
 }
 
-function StatusPill({ live }: { live: boolean }) {
-  return (
-    <div className="flex h-8 items-center gap-2 rounded-full border border-black/8 bg-white/92 px-3 text-xs font-medium text-black/55 shadow-sm">
-      <span
-        className={`h-2 w-2 rounded-full ${live ? "bg-leaf" : "bg-gold"}`}
-      />
-      {live ? "实时" : "演示"}
-    </div>
-  );
-}
-
-function AuthButton({
-  connected,
-  user,
-  onOpen,
-  onSignOut,
-}: {
-  connected: boolean;
-  user: User | null;
-  onOpen: () => void;
-  onSignOut: () => void;
-}) {
-  if (!connected) {
-    return (
-      <button
-        className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-black/35 shadow-bubble"
-        aria-label="演示模式暂不可登录"
-        title="演示模式暂不可登录"
-      >
-        <UserRound size={17} />
-      </button>
-    );
-  }
-
-  if (!user) {
-    return (
-      <button
-        onClick={onOpen}
-        className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-ink shadow-bubble"
-        aria-label="登录或注册"
-      >
-        <LogIn size={18} />
-      </button>
-    );
-  }
-
-  const identity = getSignedInUserIdentity(user);
-
-  return (
-    <button
-      onClick={onSignOut}
-      className="flex h-10 items-center gap-2 rounded-full border border-black/8 bg-white pl-2 pr-3 text-sm text-black/62 shadow-bubble"
-      aria-label="退出登录"
-      title="退出登录"
-    >
-      <span className="grid h-6 w-6 place-items-center rounded-full bg-coral text-xs font-semibold text-white">
-        {identity.avatar}
-      </span>
-      <LogOut size={15} />
-    </button>
-  );
-}
-
 function AuthSheet({
   connected,
+  initialMode,
   onClose,
   onSignedIn,
 }: {
   connected: boolean;
+  initialMode: AuthMode;
   onClose: () => void;
   onSignedIn: (user: User) => void;
 }) {
-  const [mode, setMode] = useState<AuthMode>("sign-in");
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1549,6 +1554,7 @@ function AuthSheet({
             options: {
               data: {
                 display_name: cleanName || cleanEmail.split("@")[0],
+                avatar_pool_index: getAvatarPoolIndex(cleanEmail),
               },
             },
           });
@@ -1676,6 +1682,344 @@ function AuthSheet({
             {mode === "sign-in" ? "进入生活流" : "注册账号"}
           </button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function MenuSheet({
+  connected,
+  user,
+  search,
+  selectedChannels,
+  onSearchChange,
+  onChannelToggle,
+  onChannelClear,
+  onAuthOpen,
+  onClose,
+  onUserChange,
+}: {
+  connected: boolean;
+  user: User | null;
+  search: string;
+  selectedChannels: Exclude<Channel, "全部">[];
+  onSearchChange: (value: string) => void;
+  onChannelToggle: (channel: Exclude<Channel, "全部">) => void;
+  onChannelClear: () => void;
+  onAuthOpen: (mode: AuthMode) => void;
+  onClose: () => void;
+  onUserChange: (user: User | null) => void;
+}) {
+  const supabase = useMemo(() => createClient(), []);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const identity = user ? getSignedInUserIdentity(user) : null;
+  const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<AuthMessage | null>(null);
+
+  async function updateAvatarMetadata(
+    metadata: Record<string, string | number>,
+    successText: string,
+  ) {
+    if (!supabase || !user || busy) return;
+
+    setBusy(true);
+    setMessage({ tone: "quiet", text: "正在保存..." });
+
+    const { data, error } = await supabase.auth.updateUser({
+      data: {
+        ...user.user_metadata,
+        ...metadata,
+      },
+    });
+
+    setBusy(false);
+
+    if (error) {
+      setMessage({ tone: "bad", text: error.message });
+      return;
+    }
+
+    if (data.user) {
+      onUserChange(data.user);
+      setMessage({ tone: "good", text: successText });
+    }
+  }
+
+  function choosePoolAvatar(index: number) {
+    void updateAvatarMetadata(
+      {
+        avatar_pool_index: index,
+        avatar_url: "",
+      },
+      "头像已更新。",
+    );
+  }
+
+  async function uploadAvatar(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || !supabase || !user || busy) return;
+
+    if (!file.type.startsWith("image/")) {
+      setMessage({ tone: "bad", text: "请选择图片文件。" });
+      return;
+    }
+
+    if (file.size > maxImageSizeBytes) {
+      setMessage({ tone: "bad", text: "图片不能超过 5MB。" });
+      return;
+    }
+
+    setBusy(true);
+    setMessage({ tone: "quiet", text: "正在上传头像..." });
+
+    const avatarPath = makeAvatarImagePath(user, file);
+    const { error: uploadError } = await supabase.storage
+      .from(postImagesBucket)
+      .upload(avatarPath, file, {
+        cacheControl: "31536000",
+        contentType: file.type,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      setBusy(false);
+      setMessage({ tone: "bad", text: uploadError.message });
+      return;
+    }
+
+    const avatarUrl = getPublicImageUrl(avatarPath);
+    if (!avatarUrl) {
+      setBusy(false);
+      setMessage({ tone: "bad", text: "头像上传成功，但暂时无法生成公开地址。" });
+      return;
+    }
+
+    const { data, error } = await supabase.auth.updateUser({
+      data: {
+        ...user.user_metadata,
+        avatar_pool_index: "",
+        avatar_url: avatarUrl,
+      },
+    });
+
+    setBusy(false);
+
+    if (error) {
+      setMessage({ tone: "bad", text: error.message });
+      return;
+    }
+
+    if (data.user) {
+      onUserChange(data.user);
+      setMessage({ tone: "good", text: "头像已上传。" });
+    }
+  }
+
+  async function signOut() {
+    if (!supabase || busy) return;
+
+    setBusy(true);
+    await supabase.auth.signOut();
+    onUserChange(null);
+    setBusy(false);
+    onClose();
+  }
+
+  const selectedIndex = identity?.avatarPoolIndex;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/18 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-16 backdrop-blur-sm">
+      <div className="mx-auto max-w-3xl">
+        <section className="ml-auto flex max-h-[82vh] w-full max-w-sm flex-col rounded-[1.6rem] border border-white bg-paper p-3 shadow-lift">
+          <div className="mb-3 flex items-center justify-between">
+            {identity ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAvatarEditorOpen((current) => !current)}
+                  className="rounded-full"
+                  aria-label="修改头像"
+                  title="修改头像"
+                >
+                  <FeedAvatar
+                    fallback={identity.avatar}
+                    avatarPoolIndex={identity.avatarPoolIndex}
+                    avatarUrl={identity.avatarUrl}
+                    tone="coral"
+                  />
+                </button>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-ink">
+                    {identity.author}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm font-semibold text-ink">菜单</div>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid h-9 w-9 place-items-center rounded-full bg-white text-black/55 shadow-bubble"
+              aria-label="关闭"
+            >
+              <X size={17} />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-0.5">
+            <section className="rounded-2xl border border-black/8 bg-white p-2.5">
+              <div className="flex h-10 items-center gap-2 rounded-2xl bg-paper px-3">
+                <Search size={16} className="shrink-0 text-black/40" />
+                <input
+                  value={search}
+                  onChange={(event) => onSearchChange(event.target.value)}
+                  placeholder="搜地区、学校、预算、避雷..."
+                  className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-black/35"
+                />
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-black/8 bg-white p-2.5">
+              <div className="mb-2 px-1 text-xs font-semibold text-black/45">
+                选择频道
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={onChannelClear}
+                  className={`h-8 rounded-full px-2 text-sm ${
+                    selectedChannels.length === 0
+                      ? "bg-leaf text-white"
+                      : "bg-paper text-black/55"
+                  }`}
+                >
+                  全部
+                </button>
+                {selectableChannels.map((channel) => (
+                  <button
+                    key={channel}
+                    type="button"
+                    onClick={() => onChannelToggle(channel)}
+                    className={`h-8 rounded-full px-2 text-sm ${
+                      selectedChannels.includes(channel)
+                        ? "bg-leaf text-white"
+                        : "bg-paper text-black/55"
+                    }`}
+                  >
+                    {channel}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            {identity && avatarEditorOpen ? (
+              <section className="rounded-2xl border border-black/8 bg-white p-2">
+                <div className="mb-2 px-1 text-xs font-semibold text-black/45">
+                  修改头像
+                </div>
+                <div className="grid grid-cols-6 gap-2">
+                  {Array.from({
+                    length: anonymousAvatarColumns * anonymousAvatarRows,
+                  }).map((_, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => choosePoolAvatar(index)}
+                      disabled={busy}
+                      className={`grid aspect-square place-items-center rounded-full border ${
+                        selectedIndex === index && !identity.avatarUrl
+                          ? "border-leaf bg-leaf/8"
+                          : "border-transparent bg-transparent"
+                      }`}
+                      aria-label={`选择头像 ${index + 1}`}
+                    >
+                      <AnonymousAvatarSprite index={index} size="small" />
+                    </button>
+                  ))}
+                </div>
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={uploadAvatar}
+                />
+                <button
+                  type="button"
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={busy}
+                  className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-full bg-leaf px-3 text-sm font-medium text-white shadow-bubble disabled:bg-black/18"
+                >
+                  {busy ? (
+                    <LoaderCircle size={15} className="animate-spin" />
+                  ) : null}
+                  上传头像
+                </button>
+              </section>
+            ) : !identity ? (
+              <section className="rounded-2xl border border-black/8 bg-white p-2.5 text-xs text-black/45">
+                {connected
+                  ? "登录后可以修改头像和上传自己的头像。"
+                  : "当前没有配置 Supabase，暂时只能浏览演示内容。"}
+              </section>
+            ) : null}
+          </div>
+
+          {identity ? (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  void signOut();
+                }}
+                disabled={busy}
+                className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-black/8 bg-white px-3 text-sm text-black/55 shadow-bubble disabled:text-black/25"
+              >
+                <LogOut size={15} />
+                登出
+              </button>
+            </div>
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onAuthOpen("sign-in")}
+                disabled={!connected}
+                className="flex h-10 items-center justify-center gap-2 rounded-full bg-leaf px-3 text-sm font-medium text-white shadow-bubble disabled:bg-black/18"
+              >
+                <LogIn size={15} />
+                登录
+              </button>
+              <button
+                type="button"
+                onClick={() => onAuthOpen("sign-up")}
+                disabled={!connected}
+                className="flex h-10 items-center justify-center gap-2 rounded-full bg-coral px-3 text-sm font-medium text-white shadow-bubble disabled:bg-black/18"
+              >
+                <UserRound size={15} />
+                注册
+              </button>
+            </div>
+          )}
+
+          {message ? (
+            <p
+              className={`mt-3 min-h-5 px-1 text-xs ${
+                message.tone === "bad"
+                  ? "text-coral"
+                  : message.tone === "good"
+                    ? "text-leaf"
+                    : "text-black/45"
+              }`}
+            >
+              {message.text}
+            </p>
+          ) : null}
+        </section>
       </div>
     </div>
   );
@@ -1864,9 +2208,13 @@ function PostBubble({
   return (
     <article className={`flex gap-2.5 ${isMine ? "justify-end" : ""}`}>
       {!isMine ? (
-        <div className="mt-5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-leaf text-sm font-semibold text-white">
-          {identity.avatar}
-        </div>
+        <FeedAvatar
+          className="mt-5"
+          fallback={identity.avatar}
+          avatarPoolIndex={identity.avatarPoolIndex}
+          avatarUrl={identity.avatarUrl}
+          tone="leaf"
+        />
       ) : null}
       <div className={`flex min-w-0 max-w-[82%] flex-col ${isMine ? "items-end" : "items-start"}`}>
         <div
@@ -1926,11 +2274,120 @@ function PostBubble({
         ) : null}
       </div>
       {isMine ? (
-        <div className="mt-5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-coral text-sm font-semibold text-white">
-          {identity.avatar}
-        </div>
+        <FeedAvatar
+          className="mt-5"
+          fallback={identity.avatar}
+          avatarPoolIndex={identity.avatarPoolIndex}
+          avatarUrl={identity.avatarUrl}
+          tone="coral"
+        />
       ) : null}
     </article>
+  );
+}
+
+function FeedAvatar({
+  fallback,
+  avatarPoolIndex,
+  avatarUrl,
+  tone,
+  size = "message",
+  className = "",
+}: {
+  fallback: string;
+  avatarPoolIndex?: number;
+  avatarUrl?: string;
+  tone: "leaf" | "coral";
+  size?: "message" | "small";
+  className?: string;
+}) {
+  const sizeClass = size === "small" ? "h-8 w-8" : "h-9 w-9";
+  const textClass = size === "small" ? "text-xs" : "text-sm";
+
+  if (avatarUrl) {
+    return (
+      <span
+        className={`${className} relative block ${sizeClass} shrink-0 overflow-hidden rounded-full border border-white/80 bg-white shadow-sm`}
+      >
+        {/* User-uploaded public image URLs do not need Next image optimization. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={avatarUrl}
+          alt=""
+          aria-hidden
+          className="h-full w-full object-cover"
+        />
+      </span>
+    );
+  }
+
+  if (avatarPoolIndex !== undefined) {
+    return (
+      <AnonymousAvatarSprite
+        index={avatarPoolIndex}
+        size={size}
+        className={className}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`${className} grid ${sizeClass} shrink-0 place-items-center rounded-full ${
+        tone === "leaf" ? "bg-leaf" : "bg-coral"
+      } ${textClass} font-semibold text-white`}
+    >
+      {fallback}
+    </div>
+  );
+}
+
+function AnonymousAvatarSprite({
+  index,
+  size = "message",
+  className = "",
+}: {
+  index: number;
+  size?: "message" | "small";
+  className?: string;
+}) {
+  const displaySize = size === "small" ? 32 : anonymousAvatarDisplaySize;
+  const safeIndex =
+    ((index % (anonymousAvatarColumns * anonymousAvatarRows)) +
+      anonymousAvatarColumns * anonymousAvatarRows) %
+    (anonymousAvatarColumns * anonymousAvatarRows);
+  const column = safeIndex % anonymousAvatarColumns;
+  const row = Math.floor(safeIndex / anonymousAvatarColumns);
+  const scale = displaySize / anonymousAvatarCellSize;
+  const renderedWidth = anonymousAvatarSheetWidth * scale;
+  const renderedHeight = anonymousAvatarSheetHeight * scale;
+  const offsetX = column * displaySize;
+  const offsetY = row * displaySize;
+
+  return (
+    <span
+      className={`${className} relative block ${
+        size === "small" ? "h-8 w-8" : "h-9 w-9"
+      } shrink-0 overflow-hidden rounded-full border border-white/80 bg-white shadow-sm`}
+      aria-label="匿名头像"
+      role="img"
+    >
+      <Image
+        src={anonymousAvatarSheetPath}
+        alt=""
+        aria-hidden
+        draggable={false}
+        width={anonymousAvatarSheetWidth}
+        height={anonymousAvatarSheetHeight}
+        unoptimized
+        className="absolute left-0 top-0 max-w-none select-none"
+        style={{
+          width: `${renderedWidth}px`,
+          height: `${renderedHeight}px`,
+          transform: `translate(-${offsetX}px, -${offsetY}px)`,
+        }}
+      />
+    </span>
   );
 }
 
@@ -1975,11 +2432,12 @@ function StickerSprite({
   );
 }
 
-function getDisplayIdentity(post: FeedPost) {
+function getDisplayIdentity(post: FeedPost): DisplayIdentity {
   if (post.handle.startsWith("@anon_")) {
     return {
       author: post.author,
       avatar: post.avatar,
+      avatarPoolIndex: getAvatarPoolIndex(post.handle),
     };
   }
 
@@ -1993,6 +2451,8 @@ function getDisplayIdentity(post: FeedPost) {
     return {
       author: post.author,
       avatar: post.avatar,
+      avatarPoolIndex: post.avatarPoolIndex,
+      avatarUrl: post.avatarUrl,
     };
   }
 
@@ -2001,22 +2461,32 @@ function getDisplayIdentity(post: FeedPost) {
   return {
     author: `共振者 ${anonymousNumber}`,
     avatar: anonymousNumber.slice(-2),
+    avatarPoolIndex: getAvatarPoolIndex(post.id),
   };
 }
 
-function getSignedInUserIdentity(user: User) {
+function getAvatarPoolIndex(seed: string) {
+  return hashText(seed) % (anonymousAvatarColumns * anonymousAvatarRows);
+}
+
+function getSignedInUserIdentity(user: User): FeedIdentity {
   const displayName = getStringMetadata(user, "display_name");
   const emailPrefix = user.email?.split("@")[0] ?? "sg";
   const author = displayName || emailPrefix;
+  const avatarUrl = getStringMetadata(user, "avatar_url");
+  const savedAvatarIndex = getNumberMetadata(user, "avatar_pool_index");
+  const defaultAvatarIndex = getAvatarPoolIndex(user.id || user.email || author);
 
   return {
     author,
     handle: `@${emailPrefix.replace(/[^a-zA-Z0-9_]/g, "").slice(0, 18) || "sg"}`,
     avatar: author.slice(0, 1).toUpperCase(),
+    avatarPoolIndex: avatarUrl ? undefined : (savedAvatarIndex ?? defaultAvatarIndex),
+    avatarUrl: avatarUrl || undefined,
   };
 }
 
-function getAnonymousVisitorIdentity() {
+function getAnonymousVisitorIdentity(): FeedIdentity {
   const visitorId = getAnonymousVisitorId();
   const anonymousNumber = String(hashText(visitorId) % 1000).padStart(3, "0");
 
@@ -2024,6 +2494,7 @@ function getAnonymousVisitorIdentity() {
     author: `共振者 ${anonymousNumber}`,
     handle: `@anon_${visitorId.slice(0, 8)}`,
     avatar: anonymousNumber.slice(-2),
+    avatarPoolIndex: getAvatarPoolIndex(visitorId),
   };
 }
 
@@ -2075,6 +2546,11 @@ function getStringMetadata(user: User, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getNumberMetadata(user: User, key: string) {
+  const value = user.user_metadata[key];
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+}
+
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "网络或数据库请求异常";
 }
@@ -2103,6 +2579,8 @@ function mapSupabasePost(row: LifePostRow): FeedPost {
     author: row.author_name ?? "匿名用户",
     handle: row.author_handle ?? "@sg",
     avatar: (row.author_name ?? "匿").slice(0, 1),
+    avatarPoolIndex: row.author_avatar_index ?? undefined,
+    avatarUrl: row.author_avatar_url ?? undefined,
     body: row.body,
     imagePath: row.image_path ?? undefined,
     imageUrl: row.image_path ? getPublicImageUrl(row.image_path) : undefined,
@@ -2142,6 +2620,16 @@ function makePostImagePath(file: File, createdAtMs: number) {
       : Math.random().toString(36).slice(2);
 
   return `public/${createdAtMs}-${randomPart}.${extension}`;
+}
+
+function makeAvatarImagePath(user: User, file: File) {
+  const extension = getImageExtension(file);
+  const randomPart =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+
+  return `public/avatars/${user.id}-${randomPart}.${extension}`;
 }
 
 function makeStickerPath(sticker: StickerItem) {
