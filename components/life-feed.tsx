@@ -9,6 +9,7 @@ import {
   Plus,
   Search,
   SendHorizontal,
+  Sticker,
   UserRound,
   X,
 } from "lucide-react";
@@ -35,6 +36,34 @@ const hasPublishedPostKey = "sg-life-feed-has-published-post";
 const hasAcceptedTermsKey = "sg-life-feed-has-accepted-terms";
 const postImagesBucket = "life-post-images";
 const maxImageSizeBytes = 5 * 1024 * 1024;
+const stickerSheetPath = "/stickers/sg-life-stickers.png";
+const stickerColumns = 5;
+const stickerRows = 4;
+
+const stickers = [
+  { id: "milk-tea", label: "请喝奶茶", column: 0, row: 0 },
+  { id: "eat", label: "请吃饭啦", column: 1, row: 0 },
+  { id: "hard-work", label: "辛苦啦", column: 2, row: 0 },
+  { id: "house-luck", label: "找房好运", column: 3, row: 0 },
+  { id: "pr", label: "恭喜上岸", column: 4, row: 0 },
+  { id: "hot", label: "神帖！", column: 0, row: 1 },
+  { id: "helpful", label: "很有帮助", column: 1, row: 1 },
+  { id: "save-me", label: "救我一命", column: 2, row: 1 },
+  { id: "hug", label: "抱抱你", column: 3, row: 1 },
+  { id: "good-night", label: "晚安啦", column: 4, row: 1 },
+  { id: "student-life", label: "留子日常", column: 0, row: 2 },
+  { id: "wallet", label: "钱包流泪", column: 1, row: 2 },
+  { id: "avoid", label: "避雷！", column: 2, row: 2 },
+  { id: "peek", label: "吃瓜中", column: 3, row: 2 },
+  { id: "finals", label: "期末加油", column: 4, row: 2 },
+  { id: "graduated", label: "上岸啦！", column: 0, row: 3 },
+  { id: "rain", label: "坡县下雨了", column: 1, row: 3 },
+  { id: "mosquito", label: "被蚊子咬了", column: 2, row: 3 },
+  { id: "mrt", label: "地铁又坏了", column: 3, row: 3 },
+  { id: "sg-verified", label: "新加坡认证", column: 4, row: 3 },
+] as const;
+
+type StickerItem = (typeof stickers)[number];
 
 type AuthMode = "sign-in" | "sign-up";
 
@@ -85,6 +114,8 @@ export function LifeFeed() {
   const [termsOpen, setTermsOpen] = useState(false);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [hasPublishedPost, setHasPublishedPost] = useState(false);
+  const [stickerOpen, setStickerOpen] = useState(false);
+  const [pendingSticker, setPendingSticker] = useState<StickerItem | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isConnected] = useState(
     Boolean(
@@ -220,6 +251,7 @@ export function LifeFeed() {
       current.some((item) => item.id === post.id) ? current : [post, ...current],
     );
     setDraft("");
+    setStickerOpen(false);
     markVisitorHasPublishedPost();
     setHasPublishedPost(true);
     setComposerMessage(message);
@@ -263,7 +295,7 @@ export function LifeFeed() {
     }
 
     const meta = makeManualPostMeta(body);
-    const createdAtMs = Date.now();
+    const createdAtMs = new Date().getTime();
     const identity = user
       ? getSignedInUserIdentity(user)
       : (anonymousIdentity ?? getAnonymousVisitorIdentity());
@@ -308,6 +340,7 @@ export function LifeFeed() {
           : [savedPost, ...current],
       );
       setDraft("");
+      setStickerOpen(false);
       markVisitorHasPublishedPost();
       setHasPublishedPost(true);
       setComposerMessage(null);
@@ -354,7 +387,7 @@ export function LifeFeed() {
       return;
     }
 
-    const createdAtMs = Date.now();
+    const createdAtMs = new Date().getTime();
     const identity = user
       ? getSignedInUserIdentity(user)
       : (anonymousIdentity ?? getAnonymousVisitorIdentity());
@@ -425,6 +458,7 @@ export function LifeFeed() {
           : [savedPost, ...current],
       );
       setDraft("");
+      setStickerOpen(false);
       markVisitorHasPublishedPost();
       setHasPublishedPost(true);
       setComposerMessage(null);
@@ -433,6 +467,86 @@ export function LifeFeed() {
       publishLocalPost(post, {
         tone: "quiet",
         text: `图片已显示在本地，暂时没有同步到实时数据库：${getErrorMessage(error)}`,
+      });
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  async function publishSticker(sticker: StickerItem, skipTermsCheck = false) {
+    if (isPublishing) return;
+
+    if (!skipTermsCheck && !hasAcceptedTerms) {
+      setPendingSticker(sticker);
+      setTermsOpen(true);
+      setComposerMessage({
+        tone: "quiet",
+        text: "请先阅读并同意使用条款，再发送表情包。",
+      });
+      return;
+    }
+
+    const createdAtMs = new Date().getTime();
+    const identity = user
+      ? getSignedInUserIdentity(user)
+      : (anonymousIdentity ?? getAnonymousVisitorIdentity());
+    const post: FeedPost = {
+      id: `local-sticker-${createdAtMs}`,
+      author: identity.author,
+      handle: identity.handle,
+      avatar: identity.avatar,
+      body: "",
+      imagePath: makeStickerPath(sticker.id),
+      imageUrl: makeStickerPath(sticker.id),
+      createdAt: "刚刚",
+      createdAtMs,
+      replies: 0,
+      meta: {
+        category: unifiedCategory,
+        tags: ["表情包", sticker.label],
+        summary: sticker.label,
+      },
+    };
+
+    if (!supabase) {
+      publishLocalPost(post, {
+        tone: "quiet",
+        text: "当前是演示模式，表情包只会显示在你自己的浏览器里。",
+      });
+      setComposerMessage(null);
+      return;
+    }
+
+    setIsPublishing(true);
+    setComposerMessage({ tone: "quiet", text: "正在发送表情包..." });
+
+    try {
+      const { data, error } = await publishRemotePost(post);
+
+      if (error) {
+        publishLocalPost(post, {
+          tone: "quiet",
+          text: `表情包已显示在本地，暂时没有同步到实时数据库：${error.message}`,
+        });
+        return;
+      }
+
+      const savedPost = mapSupabasePost(data as LifePostRow);
+      setPosts((current) =>
+        current.some((item) => item.id === savedPost.id)
+          ? current
+          : [savedPost, ...current],
+      );
+      setDraft("");
+      setStickerOpen(false);
+      markVisitorHasPublishedPost();
+      setHasPublishedPost(true);
+      setComposerMessage(null);
+      composerRef.current?.focus();
+    } catch (error) {
+      publishLocalPost(post, {
+        tone: "quiet",
+        text: `表情包已显示在本地，暂时没有同步到实时数据库：${getErrorMessage(error)}`,
       });
     } finally {
       setIsPublishing(false);
@@ -550,6 +664,28 @@ export function LifeFeed() {
             </p>
           ) : null}
 
+          {stickerOpen ? (
+            <div className="mb-2 rounded-[1.35rem] border border-black/8 bg-white/96 p-2 shadow-bubble">
+              <div className="grid grid-cols-5 gap-1.5">
+                {stickers.map((sticker) => (
+                  <button
+                    key={sticker.id}
+                    type="button"
+                    onClick={() => {
+                      void publishSticker(sticker);
+                    }}
+                    disabled={isPublishing}
+                    className="aspect-[6/5] rounded-lg border border-transparent bg-[#fffaf2] p-1 transition hover:border-coral/35 disabled:opacity-55"
+                    aria-label={`发送表情包：${sticker.label}`}
+                    title={sticker.label}
+                  >
+                    <StickerSprite sticker={sticker} size="picker" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex items-end gap-2">
             <textarea
               ref={composerRef}
@@ -560,6 +696,18 @@ export function LifeFeed() {
               rows={1}
               className="max-h-[120px] min-h-11 flex-1 resize-none rounded-[1.35rem] border border-black/8 bg-white px-4 py-3 text-[16px] leading-5 shadow-bubble outline-none placeholder:text-black/35"
             />
+            <button
+              type="button"
+              onClick={() => setStickerOpen((current) => !current)}
+              disabled={isPublishing}
+              className={`mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full border border-black/8 shadow-bubble ${
+                stickerOpen ? "bg-leaf text-white" : "bg-white text-black/55"
+              }`}
+              aria-label="表情包"
+              title="表情包"
+            >
+              <Sticker size={18} />
+            </button>
             <button
               onClick={() => {
                 void publishPost();
@@ -623,6 +771,15 @@ export function LifeFeed() {
             setHasAcceptedTerms(true);
             setTermsOpen(false);
             setComposerMessage(null);
+            if (pendingSticker) {
+              const sticker = pendingSticker;
+              setPendingSticker(null);
+              window.setTimeout(() => {
+                void publishSticker(sticker, true);
+              }, 0);
+              return;
+            }
+
             if (draft.trim()) {
               window.setTimeout(() => {
                 void publishPost(true);
@@ -1060,6 +1217,7 @@ function PostBubble({
   const shouldCollapse =
     post.body.length > 120 || post.body.split("\n").length > 4;
   const isCollapsed = shouldCollapse && !isExpanded;
+  const sticker = post.imagePath ? getStickerFromPath(post.imagePath) : null;
 
   return (
     <article className={`flex gap-2.5 ${isMine ? "justify-end" : ""}`}>
@@ -1076,7 +1234,11 @@ function PostBubble({
         >
           {identity.author}
         </div>
-        {post.imageUrl ? (
+        {sticker ? (
+          <div className={post.body ? "mb-2" : ""}>
+            <StickerSprite sticker={sticker} size="message" />
+          </div>
+        ) : post.imageUrl ? (
           <div className={post.body ? "mb-2" : ""}>
             {/* Local blob previews cannot be optimized by next/image. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1122,6 +1284,36 @@ function PostBubble({
         </div>
       ) : null}
     </article>
+  );
+}
+
+function StickerSprite({
+  sticker,
+  size,
+}: {
+  sticker: StickerItem;
+  size: "message" | "picker";
+}) {
+  const backgroundPosition = `${getSpritePosition(
+    sticker.column,
+    stickerColumns,
+  )}% ${getSpritePosition(sticker.row, stickerRows)}%`;
+
+  return (
+    <span
+      className={`block bg-no-repeat ${
+        size === "message"
+          ? "h-40 w-48 max-w-[68vw] rounded-lg"
+          : "h-full w-full rounded-md"
+      }`}
+      role="img"
+      aria-label={sticker.label}
+      style={{
+        backgroundImage: `url(${stickerSheetPath})`,
+        backgroundPosition,
+        backgroundSize: `${stickerColumns * 100}% ${stickerRows * 100}%`,
+      }}
+    />
   );
 }
 
@@ -1286,6 +1478,23 @@ function makePostImagePath(file: File, createdAtMs: number) {
   return `public/${createdAtMs}-${randomPart}.${extension}`;
 }
 
+function makeStickerPath(stickerId: StickerItem["id"]) {
+  return `${stickerSheetPath}#${stickerId}`;
+}
+
+function getStickerFromPath(path: string) {
+  if (!path.startsWith(`${stickerSheetPath}#`)) return null;
+
+  const stickerId = path.split("#")[1];
+  return stickers.find((sticker) => sticker.id === stickerId) ?? null;
+}
+
+function getSpritePosition(index: number, count: number) {
+  if (count <= 1) return 0;
+
+  return (index / (count - 1)) * 100;
+}
+
 function getImageExtension(file: File) {
   const extension = file.name.split(".").pop()?.toLowerCase();
 
@@ -1298,6 +1507,8 @@ function getImageExtension(file: File) {
 }
 
 function getPublicImageUrl(path: string) {
+  if (path.startsWith("/")) return path;
+
   const supabase = createClient();
 
   if (!supabase) return undefined;
