@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { seedPosts } from "@/lib/mock-posts";
 import { createClient } from "@/lib/supabase/client";
 import type { FeedPost, StructuredMeta } from "@/lib/types";
@@ -29,7 +29,7 @@ const suggestions = [
 ];
 
 const timeGroupGapMs = 10 * 60 * 1000;
-const recentFeedWindowMs = 24 * 60 * 60 * 1000;
+const feedPageSize = 20;
 const anonymousVisitorKey = "sg-life-feed-anonymous-visitor";
 const hasPublishedPostKey = "sg-life-feed-has-published-post";
 const hasAcceptedTermsKey = "sg-life-feed-has-accepted-terms";
@@ -466,11 +466,17 @@ type FeedIdentity = {
 };
 
 export function LifeFeed() {
-  const [posts, setPosts] = useState<FeedPost[]>(seedPosts);
+  const [posts, setPosts] = useState<FeedPost[]>(() =>
+    seedPosts.slice(0, feedPageSize),
+  );
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [hasOlderPosts, setHasOlderPosts] = useState(
+    seedPosts.length > feedPageSize,
+  );
   const [composerMessage, setComposerMessage] = useState<ComposerMessage | null>(
     null,
   );
@@ -485,7 +491,6 @@ export function LifeFeed() {
   const [activeStickerPackId, setActiveStickerPackId] =
     useState<StickerPackId>("life");
   const [pendingSticker, setPendingSticker] = useState<StickerItem | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const [isConnected] = useState(
     Boolean(
       process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -495,7 +500,13 @@ export function LifeFeed() {
   const supabase = useMemo(() => createClient(), []);
   const currentIdentity = user ? getSignedInUserIdentity(user) : anonymousIdentity;
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const feedTopRef = useRef<HTMLDivElement>(null);
   const feedEndRef = useRef<HTMLDivElement>(null);
+  const shouldScrollToBottomRef = useRef(true);
+  const hasCompletedInitialScrollRef = useRef(false);
+  const keepPinnedToBottomUntilRef = useRef(0);
+  const bottomScrollTimeoutsRef = useRef<number[]>([]);
+  const scrollRestoreRef = useRef<{ height: number; top: number } | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const stickerCategoryScrollerRef = useRef<HTMLDivElement>(null);
   const stickerCategoryButtonRefs = useRef<
@@ -514,24 +525,15 @@ export function LifeFeed() {
   }, []);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 60_000);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     if (!supabase) return;
 
-    const feedWindowStart = new Date(Date.now() - recentFeedWindowMs).toISOString();
+    shouldScrollToBottomRef.current = true;
 
     supabase
       .from("life_posts")
       .select("*")
-      .gte("created_at", feedWindowStart)
       .order("created_at", { ascending: false })
-      .limit(100)
+      .limit(feedPageSize)
       .then(({ data, error }) => {
         if (error) {
           setComposerMessage({
@@ -542,6 +544,7 @@ export function LifeFeed() {
         }
 
         setPosts(data?.map(mapSupabasePost) ?? []);
+        setHasOlderPosts((data?.length ?? 0) === feedPageSize);
       });
 
     const channel = supabase
@@ -551,8 +554,8 @@ export function LifeFeed() {
         { event: "INSERT", schema: "public", table: "life_posts" },
         (payload) => {
           const nextPost = mapSupabasePost(payload.new as LifePostRow);
-          if (!isRecentPost(nextPost, Date.now())) return;
 
+          shouldScrollToBottomRef.current = true;
           setPosts((current) =>
             current.some((post) => post.id === nextPost.id)
               ? current
@@ -566,6 +569,50 @@ export function LifeFeed() {
       supabase.removeChannel(channel);
     };
   }, [supabase]);
+
+  const loadOlderPosts = useCallback(async () => {
+    if (isLoadingOlder || !hasOlderPosts || search.trim()) return;
+
+    const oldestPost = posts[posts.length - 1];
+    if (!oldestPost) return;
+
+    setIsLoadingOlder(true);
+    shouldScrollToBottomRef.current = false;
+    scrollRestoreRef.current = {
+      height: document.documentElement.scrollHeight,
+      top: window.scrollY,
+    };
+
+    if (!supabase) {
+      const nextPosts = seedPosts.slice(posts.length, posts.length + feedPageSize);
+
+      setPosts((current) => mergePostsByNewest([...current, ...nextPosts]));
+      setHasOlderPosts(posts.length + nextPosts.length < seedPosts.length);
+      setIsLoadingOlder(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("life_posts")
+      .select("*")
+      .lt("created_at", new Date(oldestPost.createdAtMs).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(feedPageSize);
+
+    if (error) {
+      setComposerMessage({
+        tone: "bad",
+        text: `加载更早消息失败：${error.message}`,
+      });
+      setIsLoadingOlder(false);
+      return;
+    }
+
+    const olderPosts = data?.map(mapSupabasePost) ?? [];
+    setPosts((current) => mergePostsByNewest([...current, ...olderPosts]));
+    setHasOlderPosts(olderPosts.length === feedPageSize);
+    setIsLoadingOlder(false);
+  }, [hasOlderPosts, isLoadingOlder, posts, search, supabase]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -595,10 +642,7 @@ export function LifeFeed() {
   }, [draft]);
 
   const filteredPosts = useMemo(() => {
-    const feedWindowStartMs = nowMs - recentFeedWindowMs;
-
     return posts.filter((post) => {
-      const inRecentWindow = post.createdAtMs >= feedWindowStartMs;
       const query = search.trim().toLowerCase();
       const inSearch =
         !query ||
@@ -608,20 +652,95 @@ export function LifeFeed() {
           .toLowerCase()
           .includes(query);
 
-      return inRecentWindow && inSearch;
+      return inSearch;
     });
-  }, [nowMs, posts, search]);
+  }, [posts, search]);
 
   const displayedPosts = useMemo(() => {
     return [...filteredPosts].reverse();
   }, [filteredPosts]);
+  const latestDisplayedPostId = displayedPosts[displayedPosts.length - 1]?.id ?? "";
   const activeStickerPack =
     stickerPacks.find((pack) => pack.id === activeStickerPackId) ??
     stickerPacks[0];
 
+  const scrollToFeedBottom = useCallback(() => {
+    const scrollToBottom = () => {
+      const scrollHeight =
+        document.scrollingElement?.scrollHeight ??
+        document.documentElement.scrollHeight;
+
+      feedEndRef.current?.scrollIntoView({ block: "end" });
+      window.scrollTo({ top: scrollHeight, behavior: "auto" });
+      hasCompletedInitialScrollRef.current = true;
+    };
+
+    keepPinnedToBottomUntilRef.current = Date.now() + 2_000;
+    bottomScrollTimeoutsRef.current.forEach((timeout) => {
+      window.clearTimeout(timeout);
+    });
+    bottomScrollTimeoutsRef.current = [];
+
+    [0, 40, 120, 260, 520, 900, 1_400, 1_900].forEach((delay) => {
+      const timeout = window.setTimeout(() => {
+        window.requestAnimationFrame(scrollToBottom);
+      }, delay);
+
+      bottomScrollTimeoutsRef.current.push(timeout);
+    });
+  }, []);
+
   useEffect(() => {
-    feedEndRef.current?.scrollIntoView({ block: "end" });
-  }, [displayedPosts.length, search]);
+    const restorePoint = scrollRestoreRef.current;
+
+    if (restorePoint) {
+      window.requestAnimationFrame(() => {
+        const nextHeight = document.documentElement.scrollHeight;
+        window.scrollTo({
+          top: restorePoint.top + nextHeight - restorePoint.height,
+        });
+        scrollRestoreRef.current = null;
+      });
+      return;
+    }
+
+    if (!shouldScrollToBottomRef.current) return;
+
+    scrollToFeedBottom();
+    shouldScrollToBottomRef.current = false;
+  }, [displayedPosts.length, latestDisplayedPostId, scrollToFeedBottom, search]);
+
+  useEffect(() => {
+    return () => {
+      bottomScrollTimeoutsRef.current.forEach((timeout) => {
+        window.clearTimeout(timeout);
+      });
+    };
+  }, []);
+
+  const pinToBottomAfterMediaLoad = useCallback(() => {
+    if (Date.now() > keepPinnedToBottomUntilRef.current) return;
+
+    scrollToFeedBottom();
+  }, [scrollToFeedBottom]);
+
+  useEffect(() => {
+    const topMarker = feedTopRef.current;
+    if (!topMarker || search.trim()) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && hasCompletedInitialScrollRef.current) {
+          void loadOlderPosts();
+        }
+      },
+      { rootMargin: "220px 0px 0px 0px" },
+    );
+
+    observer.observe(topMarker);
+
+    return () => observer.disconnect();
+  }, [loadOlderPosts, search]);
 
   function scrollToStickerPack(packId: StickerPackId) {
     const packIndex = stickerPacks.findIndex((pack) => pack.id === packId);
@@ -1067,10 +1186,25 @@ export function LifeFeed() {
 
       <section className="relative z-10 mx-auto max-w-3xl px-4 pt-4">
         <div className="mb-3 flex items-center justify-between px-1 text-xs text-black/45">
-          <span>最近24小时 · 最新在下面</span>
+          <span>最新20条 · 下拉看更早</span>
           <span>公开生活群</span>
         </div>
         <div className="space-y-3">
+          <div ref={feedTopRef} className="h-px" />
+          {search.trim() ? null : (
+            <div className="flex justify-center py-1 text-xs text-black/35">
+              {isLoadingOlder ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <LoaderCircle size={13} className="animate-spin" />
+                  正在载入更早消息
+                </span>
+              ) : hasOlderPosts ? (
+                <span>下拉载入更早消息</span>
+              ) : (
+                <span>已经看到最早消息</span>
+              )}
+            </div>
+          )}
           {displayedPosts.map((post, index) => {
             const previousPost = displayedPosts[index - 1];
             const showTime =
@@ -1080,7 +1214,11 @@ export function LifeFeed() {
             return (
               <Fragment key={post.id}>
                 {showTime ? <TimeDivider label={post.createdAt} /> : null}
-                <PostBubble post={post} currentHandle={currentIdentity?.handle} />
+                <PostBubble
+                  post={post}
+                  currentHandle={currentIdentity?.handle}
+                  onMediaLoad={pinToBottomAfterMediaLoad}
+                />
               </Fragment>
             );
           })}
@@ -1197,10 +1335,10 @@ export function LifeFeed() {
           </div>
 
           {stickerOpen ? (
-            <div className="mt-2 rounded-[1.35rem] border border-black/8 bg-white/96 p-2 shadow-bubble">
+            <div className="mt-1.5 rounded-[1.1rem] border border-black/8 bg-white/96 p-1 shadow-bubble">
               <div
                 ref={stickerCategoryScrollerRef}
-                className="no-scrollbar mb-2 flex gap-1 overflow-x-auto rounded-full bg-black/[0.04] p-1"
+                className="no-scrollbar mb-1 flex gap-0.5 overflow-x-auto rounded-full bg-black/[0.04] p-0.5"
               >
                 {stickerPacks.map((pack) => (
                   <button
@@ -1210,7 +1348,7 @@ export function LifeFeed() {
                     }}
                     type="button"
                     onClick={() => scrollToStickerPack(pack.id)}
-                    className={`h-7 shrink-0 rounded-full px-3 text-xs font-medium transition ${
+                    className={`h-7 shrink-0 rounded-full px-2.5 text-xs font-medium transition ${
                       activeStickerPack.id === pack.id
                         ? "bg-white text-leaf shadow-bubble"
                         : "text-black/45"
@@ -1229,7 +1367,7 @@ export function LifeFeed() {
                 {stickerPacks.map((pack) => (
                   <div
                     key={pack.id}
-                    className="grid min-w-full shrink-0 snap-start grid-cols-5 gap-1.5"
+                    className="grid min-w-full shrink-0 snap-start grid-cols-5 gap-0.5"
                   >
                     {stickers
                       .filter((sticker) => sticker.packId === pack.id)
@@ -1241,7 +1379,7 @@ export function LifeFeed() {
                             void publishSticker(sticker);
                           }}
                           disabled={isPublishing}
-                          className="aspect-[6/5] rounded-lg border border-transparent bg-[#fffaf2] p-1 transition hover:border-coral/35 disabled:opacity-55"
+                          className="aspect-[6/5] rounded-md border border-transparent bg-[#fffaf2] p-0.5 transition hover:border-coral/35 disabled:opacity-55"
                           aria-label={`发送表情包：${sticker.label}`}
                           title={sticker.label}
                         >
@@ -1707,9 +1845,11 @@ function TimeDivider({ label }: { label: string }) {
 function PostBubble({
   post,
   currentHandle,
+  onMediaLoad,
 }: {
   post: FeedPost;
   currentHandle?: string;
+  onMediaLoad?: () => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const isMine =
@@ -1738,7 +1878,11 @@ function PostBubble({
         </div>
         {sticker ? (
           <div className={post.body ? "mb-2" : ""}>
-            <StickerSprite sticker={sticker} size="message" />
+            <StickerSprite
+              sticker={sticker}
+              size="message"
+              onLoad={onMediaLoad}
+            />
           </div>
         ) : post.imageUrl ? (
           <div className={post.body ? "mb-2" : ""}>
@@ -1748,6 +1892,7 @@ function PostBubble({
               src={post.imageUrl}
               alt="聊天图片"
               className="max-h-80 w-full rounded-lg object-cover"
+              onLoad={onMediaLoad}
             />
           </div>
         ) : null}
@@ -1792,9 +1937,11 @@ function PostBubble({
 function StickerSprite({
   sticker,
   size,
+  onLoad,
 }: {
   sticker: StickerItem;
   size: "message" | "picker";
+  onLoad?: () => void;
 }) {
   return (
     <span
@@ -1814,6 +1961,7 @@ function StickerSprite({
         width={stickerSheetWidth}
         height={stickerSheetHeight}
         unoptimized
+        onLoad={onLoad}
         className="absolute left-0 top-0 max-w-none select-none"
         style={{
           width: `${stickerColumns * 100}%`,
@@ -1974,8 +2122,16 @@ function mapSupabasePost(row: LifePostRow): FeedPost {
   };
 }
 
-function isRecentPost(post: FeedPost, nowMs: number) {
-  return post.createdAtMs >= nowMs - recentFeedWindowMs;
+function mergePostsByNewest(posts: FeedPost[]) {
+  const postsById = new Map<string, FeedPost>();
+
+  posts.forEach((post) => {
+    postsById.set(post.id, post);
+  });
+
+  return Array.from(postsById.values()).sort(
+    (left, right) => right.createdAtMs - left.createdAtMs,
+  );
 }
 
 function makePostImagePath(file: File, createdAtMs: number) {
