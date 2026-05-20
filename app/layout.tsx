@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: "维界",
-  description: "新加坡本地华人的公开版微信群。",
+  description: "连接真实生活的另一维度",
   icons: {
     icon: [
       { url: "/favicon.ico" },
@@ -14,8 +14,8 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "维界",
-    description: "新加坡本地华人的公开版微信群。",
-    images: [{ url: "/brand/weijie-logo.png", width: 671, height: 720 }],
+    description: "连接真实生活的另一维度",
+    images: [{ url: "/brand/weijie-logo.png", width: 786, height: 311 }],
   },
 };
 

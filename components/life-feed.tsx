@@ -966,19 +966,15 @@ export function LifeFeed() {
       />
       <header className="fixed inset-x-0 top-0 z-30 border-b border-[#eadfce] bg-paper/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-          <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex min-w-0 items-center">
             <Image
-              src="/brand/weijie-icon.png"
+              src="/brand/weijie-logo.png"
               alt="维界"
-              width={40}
-              height={40}
+              width={177}
+              height={70}
               priority
-              className="shrink-0 rounded-2xl shadow-bubble ring-2 ring-white"
+              className="h-14 w-auto shrink-0 object-contain"
             />
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold text-leaf">新加坡华人生活流</p>
-              <h1 className="text-xl font-semibold tracking-normal">维界</h1>
-            </div>
           </div>
           <div className="flex items-center gap-2">
             <StatusPill live={isConnected} />
