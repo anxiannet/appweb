@@ -10,6 +10,8 @@ const rawPosts = [
   ["34分钟前", "Kai", "kai", "周末有人一起去Paya Lebar打羽毛球吗，缺两个人"],
   ["48分钟前", "Rita", "rita", "公司招part-time admin，一周三天，地点Bugis，适合学生"],
   ["1小时前", "小郑", "zheng", "Tampines附近有没有靠谱修空调师傅，房东一直拖"],
+  ["1小时前", "Grace", "grace", "NUS附近有没有人出小冰箱？Queenstown或Clementi都可以自取"],
+  ["2小时前", "小林", "lin", "明早8点从Yishun去樟宜机场，有人一起Grab分摊吗"],
 ];
 
 const relativeMinutes: Record<string, number> = {
@@ -21,6 +23,7 @@ const relativeMinutes: Record<string, number> = {
   "34分钟前": 34,
   "48分钟前": 48,
   "1小时前": 60,
+  "2小时前": 120,
 };
 
 export const seedPosts: FeedPost[] = rawPosts.map(([createdAt, author, handle, body], index) => ({
@@ -31,6 +34,6 @@ export const seedPosts: FeedPost[] = rawPosts.map(([createdAt, author, handle, b
   body,
   createdAt,
   createdAtMs: Date.now() - (relativeMinutes[createdAt] ?? 0) * 60_000,
-  replies: [4, 2, 1, 6, 9, 3, 5, 2][index],
+  replies: [4, 2, 1, 6, 9, 3, 5, 2, 3, 1][index],
   meta: structurePost(body),
 }));

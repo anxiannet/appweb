@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: light;
-  background: #f7f5ef;
+  background: #fffaf2;
 }
 
 * {
@@ -19,8 +19,14 @@ body {
   margin: 0;
   color: #1f2328;
   background:
-    linear-gradient(180deg, rgba(247, 245, 239, 0.94), rgba(247, 245, 239, 1)),
-    radial-gradient(circle at 15% 0%, rgba(66, 118, 108, 0.12), transparent 30%);
+    linear-gradient(180deg, rgba(255, 250, 242, 0.98), rgba(255, 243, 220, 0.86)),
+    repeating-linear-gradient(
+      135deg,
+      rgba(79, 155, 134, 0.05) 0,
+      rgba(79, 155, 134, 0.05) 1px,
+      transparent 1px,
+      transparent 18px
+    );
   font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;

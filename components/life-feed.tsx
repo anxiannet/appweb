@@ -14,23 +14,12 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { structurePost } from "@/lib/ai-structure";
 import { seedPosts } from "@/lib/mock-posts";
 import { createClient } from "@/lib/supabase/client";
-import type { Channel, FeedPost } from "@/lib/types";
+import type { FeedPost, StructuredMeta } from "@/lib/types";
 import type { User } from "@supabase/supabase-js";
 
-const channels: Channel[] = [
-  "全部",
-  "租房",
-  "二手",
-  "拼车",
-  "美食",
-  "避雷",
-  "找搭子",
-  "活动",
-  "求职",
-];
+const unifiedCategory: FeedPost["meta"]["category"] = "找搭子";
 
 const suggestions = [
   "NTU附近求租，预算1200",
@@ -43,6 +32,7 @@ const timeGroupGapMs = 10 * 60 * 1000;
 const recentFeedWindowMs = 24 * 60 * 60 * 1000;
 const anonymousVisitorKey = "sg-life-feed-anonymous-visitor";
 const hasPublishedPostKey = "sg-life-feed-has-published-post";
+const hasAcceptedTermsKey = "sg-life-feed-has-accepted-terms";
 const postImagesBucket = "life-post-images";
 const maxImageSizeBytes = 5 * 1024 * 1024;
 
@@ -80,7 +70,6 @@ type FeedIdentity = {
 };
 
 export function LifeFeed() {
-  const [activeChannel, setActiveChannel] = useState<Channel>("全部");
   const [posts, setPosts] = useState<FeedPost[]>(seedPosts);
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
@@ -93,6 +82,8 @@ export function LifeFeed() {
     null,
   );
   const [authOpen, setAuthOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [hasPublishedPost, setHasPublishedPost] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isConnected] = useState(
@@ -111,6 +102,7 @@ export function LifeFeed() {
     const timeout = window.setTimeout(() => {
       setAnonymousIdentity(getAnonymousVisitorIdentity());
       setHasPublishedPost(hasVisitorPublishedPost());
+      setHasAcceptedTerms(hasVisitorAcceptedTerms());
     }, 0);
 
     return () => window.clearTimeout(timeout);
@@ -202,8 +194,6 @@ export function LifeFeed() {
 
     return posts.filter((post) => {
       const inRecentWindow = post.createdAtMs >= feedWindowStartMs;
-      const inChannel =
-        activeChannel === "全部" || post.meta.category === activeChannel;
       const query = search.trim().toLowerCase();
       const inSearch =
         !query ||
@@ -213,9 +203,9 @@ export function LifeFeed() {
           .toLowerCase()
           .includes(query);
 
-      return inRecentWindow && inChannel && inSearch;
+      return inRecentWindow && inSearch;
     });
-  }, [activeChannel, nowMs, posts, search]);
+  }, [nowMs, posts, search]);
 
   const displayedPosts = useMemo(() => {
     return [...filteredPosts].reverse();
@@ -223,7 +213,7 @@ export function LifeFeed() {
 
   useEffect(() => {
     feedEndRef.current?.scrollIntoView({ block: "end" });
-  }, [displayedPosts.length, activeChannel, search]);
+  }, [displayedPosts.length, search]);
 
   function publishLocalPost(post: FeedPost, message: ComposerMessage) {
     setPosts((current) =>
@@ -259,11 +249,20 @@ export function LifeFeed() {
     return { data, error };
   }
 
-  async function publishPost() {
+  async function publishPost(skipTermsCheck = false) {
     const body = draft.trim();
     if (!body || isPublishing) return;
 
-    const meta = structurePost(body);
+    if (!skipTermsCheck && !hasAcceptedTerms) {
+      setTermsOpen(true);
+      setComposerMessage({
+        tone: "quiet",
+        text: "请先阅读并同意使用条款，再发布内容。",
+      });
+      return;
+    }
+
+    const meta = makeManualPostMeta(body);
     const createdAtMs = Date.now();
     const identity = user
       ? getSignedInUserIdentity(user)
@@ -336,6 +335,15 @@ export function LifeFeed() {
 
     if (!file) return;
 
+    if (!hasAcceptedTerms) {
+      setTermsOpen(true);
+      setComposerMessage({
+        tone: "quiet",
+        text: "请先阅读并同意使用条款，再发布图片。",
+      });
+      return;
+    }
+
     if (!file.type.startsWith("image/")) {
       setComposerMessage({ tone: "bad", text: "请选择图片文件。" });
       return;
@@ -351,7 +359,7 @@ export function LifeFeed() {
       ? getSignedInUserIdentity(user)
       : (anonymousIdentity ?? getAnonymousVisitorIdentity());
     const body = draft.trim();
-    const meta = structurePost(body || "图片消息");
+    const meta = makeManualPostMeta(body || "图片消息");
     const post: FeedPost = {
       id: `local-image-${createdAtMs}`,
       author: identity.author,
@@ -362,7 +370,7 @@ export function LifeFeed() {
       createdAt: "刚刚",
       createdAtMs,
       replies: 0,
-      meta: { ...meta, tags: Array.from(new Set([...meta.tags, "图片"])) },
+      meta,
     };
 
     if (!supabase) {
@@ -432,17 +440,17 @@ export function LifeFeed() {
   }
 
   return (
-    <main className="relative isolate min-h-screen overflow-x-hidden bg-transparent pb-[calc(10rem+env(safe-area-inset-bottom))] pt-[9.75rem] text-ink">
+    <main className="relative isolate min-h-screen overflow-x-hidden bg-transparent pb-[calc(8rem+env(safe-area-inset-bottom))] pt-[5.75rem] text-ink">
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-0 z-0 bg-[url('/brand/chat-background.png')] bg-cover bg-center bg-no-repeat"
+        className="pointer-events-none fixed inset-0 z-0 bg-[url('/brand/chat-background.png')] bg-cover bg-center bg-no-repeat opacity-30"
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-0 z-0 bg-white/68 backdrop-blur-[1px]"
+        className="pointer-events-none fixed inset-0 z-0 bg-paper/82 backdrop-blur-[1px]"
       />
-      <header className="fixed inset-x-0 top-0 z-30 border-b border-black/5 bg-paper/76 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-2.5">
+      <header className="fixed inset-x-0 top-0 z-30 border-b border-[#eadfce] bg-paper/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <div className="flex min-w-0 items-center gap-2.5">
             <Image
               src="/brand/weijie-icon.png"
@@ -450,10 +458,10 @@ export function LifeFeed() {
               width={40}
               height={40}
               priority
-              className="shrink-0 rounded-xl shadow-sm"
+              className="shrink-0 rounded-2xl shadow-bubble ring-2 ring-white"
             />
             <div className="min-w-0">
-              <p className="text-[11px] font-medium text-leaf">新加坡华人生活流</p>
+              <p className="text-[11px] font-semibold text-leaf">新加坡华人生活流</p>
               <h1 className="text-xl font-semibold tracking-normal">维界</h1>
             </div>
           </div>
@@ -468,7 +476,7 @@ export function LifeFeed() {
               }}
             />
             <button
-              className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-ink shadow-sm"
+              className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-ink shadow-bubble"
               aria-label="通知"
             >
               <Bell size={18} />
@@ -477,7 +485,7 @@ export function LifeFeed() {
         </div>
 
         <section className="mx-auto max-w-3xl px-4 pb-3">
-          <div className="flex items-center gap-2 rounded-full border border-black/8 bg-white px-3 py-2 shadow-sm">
+          <div className="flex items-center gap-2 rounded-2xl border border-black/8 bg-white px-3 py-2 shadow-bubble">
             <Search size={17} className="shrink-0 text-black/40" />
             <input
               value={search}
@@ -486,29 +494,13 @@ export function LifeFeed() {
               className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-black/35"
             />
           </div>
-
-          <nav className="no-scrollbar -mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1">
-            {channels.map((channel) => (
-              <button
-                key={channel}
-                onClick={() => setActiveChannel(channel)}
-                className={`h-9 shrink-0 rounded-full border px-4 text-sm transition ${
-                  activeChannel === channel
-                    ? "border-leaf bg-leaf text-white"
-                    : "border-black/8 bg-white text-black/68"
-                }`}
-              >
-                {channel}
-              </button>
-            ))}
-          </nav>
         </section>
       </header>
 
       <section className="relative z-10 mx-auto max-w-3xl px-4 pt-4">
-        <div className="mb-3 flex items-center justify-between text-xs text-black/45">
+        <div className="mb-3 flex items-center justify-between px-1 text-xs text-black/45">
           <span>最近24小时 · 最新在下面</span>
-          <span>{filteredPosts.length} 条正在流动</span>
+          <span>公开生活群</span>
         </div>
         <div className="space-y-3">
           {displayedPosts.map((post, index) => {
@@ -528,7 +520,7 @@ export function LifeFeed() {
         </div>
       </section>
 
-      <section className="fixed inset-x-0 bottom-0 z-40 border-t border-black/8 bg-paper/82 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">
+      <section className="fixed inset-x-0 bottom-0 z-40 border-t border-[#eadfce] bg-paper/92 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">
         <div className="mx-auto max-w-3xl">
           {!hasPublishedPost && !draft.trim() ? (
             <div className="no-scrollbar mb-2 flex gap-2 overflow-x-auto">
@@ -536,7 +528,7 @@ export function LifeFeed() {
                 <button
                   key={item}
                   onClick={() => setDraft(item)}
-                  className="h-8 shrink-0 rounded-full bg-white px-3 text-xs text-black/50 shadow-sm"
+                  className="h-8 shrink-0 rounded-full border border-white bg-white/92 px-3 text-xs text-black/55 shadow-bubble"
                 >
                   {item}
                 </button>
@@ -564,14 +556,16 @@ export function LifeFeed() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={publishOnEnter}
-              placeholder="发到公开生活群..."
+              placeholder="发到公开生活流..."
               rows={1}
-              className="max-h-[120px] min-h-10 flex-1 resize-none rounded-2xl border border-black/8 bg-white px-4 py-2.5 text-[16px] leading-5 shadow-sm outline-none placeholder:text-black/35"
+              className="max-h-[120px] min-h-11 flex-1 resize-none rounded-[1.35rem] border border-black/8 bg-white px-4 py-3 text-[16px] leading-5 shadow-bubble outline-none placeholder:text-black/35"
             />
             <button
-              onClick={publishPost}
+              onClick={() => {
+                void publishPost();
+              }}
               disabled={!draft.trim() || isPublishing}
-              className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-full bg-coral text-white shadow-sm transition disabled:bg-black/15 disabled:shadow-none"
+              className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-coral text-white shadow-bubble transition disabled:bg-black/15 disabled:shadow-none"
               aria-label="发布"
             >
               {isPublishing ? (
@@ -589,9 +583,20 @@ export function LifeFeed() {
             />
             <button
               type="button"
-              onClick={() => imageInputRef.current?.click()}
+              onClick={() => {
+                if (!hasAcceptedTerms) {
+                  setTermsOpen(true);
+                  setComposerMessage({
+                    tone: "quiet",
+                    text: "请先阅读并同意使用条款，再发布图片。",
+                  });
+                  return;
+                }
+
+                imageInputRef.current?.click();
+              }}
               disabled={isPublishing}
-              className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-full border border-black/8 bg-white text-black/55 shadow-sm"
+              className="mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full border border-black/8 bg-white text-black/55 shadow-bubble"
               aria-label="发送图片"
               title="发送图片"
             >
@@ -611,13 +616,32 @@ export function LifeFeed() {
           }}
         />
       ) : null}
+      {termsOpen ? (
+        <TermsSheet
+          onAccept={() => {
+            markVisitorAcceptedTerms();
+            setHasAcceptedTerms(true);
+            setTermsOpen(false);
+            setComposerMessage(null);
+            if (draft.trim()) {
+              window.setTimeout(() => {
+                void publishPost(true);
+              }, 0);
+              return;
+            }
+
+            composerRef.current?.focus();
+          }}
+          onClose={() => setTermsOpen(false)}
+        />
+      ) : null}
     </main>
   );
 }
 
 function StatusPill({ live }: { live: boolean }) {
   return (
-    <div className="flex h-8 items-center gap-2 rounded-full border border-black/8 bg-white px-3 text-xs text-black/55">
+    <div className="flex h-8 items-center gap-2 rounded-full border border-black/8 bg-white/92 px-3 text-xs font-medium text-black/55 shadow-sm">
       <span
         className={`h-2 w-2 rounded-full ${live ? "bg-leaf" : "bg-gold"}`}
       />
@@ -640,7 +664,7 @@ function AuthButton({
   if (!connected) {
     return (
       <button
-        className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-black/35 shadow-sm"
+        className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-black/35 shadow-bubble"
         aria-label="演示模式暂不可登录"
         title="演示模式暂不可登录"
       >
@@ -653,7 +677,7 @@ function AuthButton({
     return (
       <button
         onClick={onOpen}
-        className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-ink shadow-sm"
+        className="grid h-10 w-10 place-items-center rounded-full border border-black/8 bg-white text-ink shadow-bubble"
         aria-label="登录或注册"
       >
         <LogIn size={18} />
@@ -666,7 +690,7 @@ function AuthButton({
   return (
     <button
       onClick={onSignOut}
-      className="flex h-10 items-center gap-2 rounded-full border border-black/8 bg-white pl-2 pr-3 text-sm text-black/62 shadow-sm"
+      className="flex h-10 items-center gap-2 rounded-full border border-black/8 bg-white pl-2 pr-3 text-sm text-black/62 shadow-bubble"
       aria-label="退出登录"
       title="退出登录"
     >
@@ -755,10 +779,10 @@ function AuthSheet({
       <div className="mx-auto max-w-3xl">
         <form
           onSubmit={submitAuth}
-          className="ml-auto w-full max-w-sm rounded-lg border border-black/8 bg-paper p-3 shadow-lift"
+          className="ml-auto w-full max-w-sm rounded-[1.6rem] border border-white bg-paper p-3 shadow-lift"
         >
           <div className="mb-3 flex items-center justify-between">
-            <div className="inline-flex rounded-full bg-white p-1 shadow-sm">
+            <div className="inline-flex rounded-full bg-white p-1 shadow-bubble">
               <button
                 type="button"
                 onClick={() => setMode("sign-in")}
@@ -785,7 +809,7 @@ function AuthSheet({
             <button
               type="button"
               onClick={onClose}
-              className="grid h-9 w-9 place-items-center rounded-full bg-white text-black/55 shadow-sm"
+              className="grid h-9 w-9 place-items-center rounded-full bg-white text-black/55 shadow-bubble"
               aria-label="关闭"
             >
               <X size={17} />
@@ -794,7 +818,7 @@ function AuthSheet({
 
           <div className="space-y-2">
             {mode === "sign-up" ? (
-              <label className="flex h-11 items-center gap-2 rounded-lg border border-black/8 bg-white px-3">
+              <label className="flex h-11 items-center gap-2 rounded-2xl border border-black/8 bg-white px-3">
                 <UserRound size={16} className="shrink-0 text-black/35" />
                 <input
                   value={displayName}
@@ -805,7 +829,7 @@ function AuthSheet({
               </label>
             ) : null}
 
-            <label className="flex h-11 items-center gap-2 rounded-lg border border-black/8 bg-white px-3">
+            <label className="flex h-11 items-center gap-2 rounded-2xl border border-black/8 bg-white px-3">
               <Mail size={16} className="shrink-0 text-black/35" />
               <input
                 type="email"
@@ -817,7 +841,7 @@ function AuthSheet({
               />
             </label>
 
-            <label className="flex h-11 items-center gap-2 rounded-lg border border-black/8 bg-white px-3">
+            <label className="flex h-11 items-center gap-2 rounded-2xl border border-black/8 bg-white px-3">
               <span className="grid h-4 w-4 place-items-center text-xs text-black/35">
                 *
               </span>
@@ -849,7 +873,7 @@ function AuthSheet({
           <button
             type="submit"
             disabled={busy}
-            className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-full bg-coral px-4 text-sm font-medium text-white shadow-sm disabled:bg-black/18"
+            className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-full bg-coral px-4 text-sm font-medium text-white shadow-bubble disabled:bg-black/18"
           >
             {busy ? <LoaderCircle size={16} className="animate-spin" /> : null}
             {mode === "sign-in" ? "进入生活流" : "注册账号"}
@@ -860,10 +884,161 @@ function AuthSheet({
   );
 }
 
+function TermsSheet({
+  onAccept,
+  onClose,
+}: {
+  onAccept: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/18 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-10 backdrop-blur-sm">
+      <div className="mx-auto flex h-full max-w-3xl items-end sm:items-center">
+        <section className="flex max-h-[88vh] w-full flex-col rounded-[1.6rem] border border-white bg-paper shadow-lift">
+          <div className="flex items-center justify-between border-b border-black/8 px-4 py-3">
+            <div>
+              <h2 className="text-base font-semibold text-ink">使用条款</h2>
+              <p className="mt-0.5 text-xs text-black/45">发布前请阅读并同意</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid h-9 w-9 place-items-center rounded-full bg-white text-black/55 shadow-bubble"
+              aria-label="关闭使用条款"
+            >
+              <X size={17} />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3 text-sm leading-6 text-black/72">
+            <p>
+              欢迎使用本平台。本平台是一个面向新加坡本地华人生活的信息交流社区，用户可发布、浏览及交流租房、二手交易、拼车、本地活动、求职招聘、美食推荐、生活求助与本地讨论等信息。
+            </p>
+            <p>
+              当您访问、注册、发布内容或使用本平台服务时，即表示您已阅读、理解并同意遵守以下条款。
+            </p>
+
+            <TermsSection
+              title="一、平台性质"
+              items={[
+                "平台仅提供信息展示、交流与内容组织服务。",
+                "平台不直接参与用户之间的交易、房屋租赁合同、金融支付、线下活动、商品交付或服务履约。",
+                "用户之间产生的行为与风险，由用户自行承担。",
+              ]}
+            />
+            <TermsSection
+              title="二、用户责任"
+              items={[
+                "用户必须保证发布的信息真实、合法、有效，并对所发布内容拥有合法权利或授权。",
+                "用户不得侵犯任何第三方权益，必须遵守新加坡现行法律法规。",
+                "禁止发布违法、虚假、欺诈、骚扰、侵权、误导性内容，包括虚假房源、非法转租、诈骗、赌博、色情、暴力、仇恨、非法招聘、非法金融服务、侵犯隐私或其他违反新加坡法律法规的内容。",
+                "用户需自行承担因其发布内容所产生的一切法律责任。",
+              ]}
+            />
+            <TermsSection
+              title="三、房源与交易信息"
+              items={[
+                "用户发布房源、商品或服务时，应确保已获得合法授权，信息真实准确，图片与描述不具有误导性。",
+                "不得侵犯第三方平台版权、内容权益或使用条款。",
+                "平台有权删除涉嫌违规内容，限制或封禁账号，要求用户提供相关证明材料，并配合新加坡执法机关调查。",
+              ]}
+            />
+            <TermsSection
+              title="四、用户名与账号名称"
+              items={[
+                "用户名、昵称、频道名、群组名或其他公开标识不代表用户拥有永久性、排他性或所有权。",
+                "平台可回收长期未使用的用户名，修改、冻结或收回涉嫌违规、侵权、冒充、误导、抢注或不符合规范的用户名。",
+                "用户名仅为平台使用权限的一部分，不构成资产、知识产权或永久使用权，平台保留最终解释与管理权。",
+              ]}
+            />
+            <TermsSection
+              title="五、用户生成内容（UGC）"
+              items={[
+                "用户保留其发布内容的所有权。",
+                "用户同意平台可在全球范围内、非独占、可转授权地使用用户发布、上传、输入或提交的文本、图片、标签、评论、对话内容、行为数据与互动记录。",
+                "使用目的包括平台展示、搜索优化、内容推荐、AI分类与标签生成、数据分析、机器学习训练、产品功能优化、安全风控与用户体验改进。",
+                "平台不会出售用户私人身份信息。",
+              ]}
+            />
+            <TermsSection
+              title="六、AI与自动化处理"
+              items={[
+                "平台可能使用人工智能技术对用户内容进行自动分类、自动摘要、自动推荐、自动审核、自动标签生成与风险识别。",
+                "AI生成结果可能存在误差，仅供参考，平台不保证AI分析结果绝对准确。",
+              ]}
+            />
+            <TermsSection
+              title="七、隐私与数据"
+              items={[
+                "平台将尽合理努力保护用户数据安全，但互联网服务无法保证绝对安全。",
+                "用户不得上传身份证件、银行卡信息、密码、金融账户、他人隐私资料等敏感信息。",
+              ]}
+            />
+            <TermsSection
+              title="八、免责声明"
+              items={[
+                "平台不对用户发布内容真实性、用户之间交易纠纷、房屋质量、租赁纠纷、二手商品质量、拼车或线下活动风险、用户行为造成的损失、AI分析结果准确性承担责任。",
+                "用户因使用平台而产生的任何直接或间接损失，以及所有线下接触与交易风险，均由用户自行承担。",
+              ]}
+            />
+            <TermsSection
+              title="九、内容管理权"
+              items={[
+                "平台有权根据自身判断删除内容、隐藏帖子、降低曝光、限制功能、封禁账号、限制访问或调整平台规则，且无需提前通知用户。",
+              ]}
+            />
+            <TermsSection
+              title="十、条款修改"
+              items={[
+                "平台有权随时修改本条款。修改后的条款将在平台发布后生效，用户继续使用平台即视为接受最新条款。",
+              ]}
+            />
+            <TermsSection
+              title="十一、适用法律"
+              items={[
+                "本条款受新加坡法律管辖。因平台使用所产生的争议，应提交新加坡法院处理。",
+              ]}
+            />
+            <TermsSection
+              title="十二、联系方式"
+              items={["如有问题，请联系平台管理员。"]}
+            />
+          </div>
+
+          <div className="border-t border-black/8 p-3">
+            <button
+              type="button"
+              onClick={onAccept}
+              className="flex h-11 w-full items-center justify-center rounded-full bg-coral px-4 text-sm font-semibold text-white shadow-bubble"
+            >
+              我已阅读并同意使用条款
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function TermsSection({ title, items }: { title: string; items: string[] }) {
+  return (
+    <section>
+      <h3 className="mb-1 text-sm font-semibold text-ink">{title}</h3>
+      <ul className="space-y-1">
+        {items.map((item) => (
+          <li key={item} className="pl-3 before:float-left before:-ml-3 before:content-['•']">
+            {item}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function TimeDivider({ label }: { label: string }) {
   return (
     <div className="flex justify-center py-1">
-      <span className="rounded-full bg-black/5 px-2.5 py-1 text-[11px] text-black/38">
+      <span className="rounded-full border border-white bg-white/70 px-2.5 py-1 text-[11px] font-medium text-black/38 shadow-sm">
         {label}
       </span>
     </div>
@@ -877,53 +1052,72 @@ function PostBubble({
   post: FeedPost;
   currentHandle?: string;
 }) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const isMine =
     post.id.startsWith("local-") ||
     (Boolean(currentHandle) && post.handle === currentHandle);
   const identity = getDisplayIdentity(post);
+  const shouldCollapse =
+    post.body.length > 120 || post.body.split("\n").length > 4;
+  const isCollapsed = shouldCollapse && !isExpanded;
 
   return (
     <article className={`flex gap-2.5 ${isMine ? "justify-end" : ""}`}>
       {!isMine ? (
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-leaf text-sm font-semibold text-white">
+        <div className="mt-5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-leaf text-sm font-semibold text-white">
           {identity.avatar}
         </div>
       ) : null}
-      <div className={`min-w-0 max-w-[82%] ${isMine ? "items-end" : ""}`}>
-        {!isMine ? (
-          <div className="mb-1 flex items-center gap-2 text-xs text-black/42">
-            <span className="font-medium text-black/58">{identity.author}</span>
-          </div>
-        ) : null}
+      <div className={`flex min-w-0 max-w-[82%] flex-col ${isMine ? "items-end" : "items-start"}`}>
         <div
-          className={`rounded-lg border border-black/6 px-3 py-2.5 shadow-sm ${
-            isMine
-              ? "rounded-tr-sm bg-leaf text-white"
-              : "rounded-tl-sm bg-white"
+          className={`mb-1 px-1 text-xs font-semibold text-black/50 ${
+            isMine ? "text-right" : "text-left"
           }`}
         >
-          {post.imageUrl ? (
-            // Local blob previews cannot be optimized by next/image.
-            // eslint-disable-next-line @next/next/no-img-element
+          {identity.author}
+        </div>
+        {post.imageUrl ? (
+          <div className={post.body ? "mb-2" : ""}>
+            {/* Local blob previews cannot be optimized by next/image. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={post.imageUrl}
               alt="聊天图片"
-              className="max-h-80 w-full rounded-md object-cover"
+              className="max-h-80 w-full rounded-lg object-cover"
             />
-          ) : null}
-          {post.body ? (
+          </div>
+        ) : null}
+        {post.body ? (
+          <div
+            className={`rounded-lg border border-black/6 px-3 py-2.5 shadow-sm ${
+              isMine
+                ? "rounded-tr-sm bg-leaf text-white"
+                : "rounded-tl-sm bg-white"
+            }`}
+          >
             <p
               className={`whitespace-pre-wrap break-words text-[15.5px] leading-6 ${
-                post.imageUrl ? "mt-2" : ""
+                isCollapsed ? "max-h-24 overflow-hidden" : ""
               }`}
             >
               {post.body}
             </p>
-          ) : null}
-        </div>
+            {shouldCollapse ? (
+              <button
+                type="button"
+                onClick={() => setIsExpanded((current) => !current)}
+                className={`mt-1 text-xs font-medium ${
+                  isMine ? "text-white/78" : "text-leaf"
+                }`}
+              >
+                {isExpanded ? "收起" : "展开"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {isMine ? (
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-coral text-sm font-semibold text-white">
+        <div className="mt-5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-coral text-sm font-semibold text-white">
           {identity.avatar}
         </div>
       ) : null}
@@ -1000,10 +1194,22 @@ function hasVisitorPublishedPost() {
   return window.localStorage.getItem(hasPublishedPostKey) === "true";
 }
 
+function hasVisitorAcceptedTerms() {
+  if (typeof window === "undefined") return false;
+
+  return window.localStorage.getItem(hasAcceptedTermsKey) === "true";
+}
+
 function markVisitorHasPublishedPost() {
   if (typeof window === "undefined") return;
 
   window.localStorage.setItem(hasPublishedPostKey, "true");
+}
+
+function markVisitorAcceptedTerms() {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(hasAcceptedTermsKey, "true");
 }
 
 function createAnonymousVisitorId() {
@@ -1027,6 +1233,14 @@ function hashText(value: string) {
   return Array.from(value).reduce((hash, character) => {
     return (hash * 31 + character.charCodeAt(0)) >>> 0;
   }, 7);
+}
+
+function makeManualPostMeta(body: string): StructuredMeta {
+  return {
+    category: unifiedCategory,
+    tags: [],
+    summary: body.trim() ? "公开生活流消息" : "公开生活流",
+  };
 }
 
 function mapSupabasePost(row: LifePostRow): FeedPost {
