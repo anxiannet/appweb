@@ -10,7 +10,7 @@ create table if not exists public.life_posts (
   author_avatar_index integer,
   author_avatar_url text,
   category text not null check (
-    category in ('租房', '二手', '拼车', '美食', '避雷', '找搭子', '活动', '求职')
+    category in ('租房', '二手', '拼车', '美食', '避雷', '找搭子', '活动', '求职', '热点')
   ),
   district text,
   school text,
@@ -19,9 +19,16 @@ create table if not exists public.life_posts (
   place text,
   tags text[] not null default '{}',
   ai_summary text not null,
+  source_urls text[] not null default '{}',
+  bot_id text,
+  idempotency_key text,
+  status text not null default 'published' check (status in ('published', 'draft')),
   image_path text,
   reply_count integer not null default 0 check (reply_count >= 0)
 );
+
+alter table public.life_posts
+add column if not exists author_id uuid references auth.users(id) on delete set null;
 
 alter table public.life_posts
 add column if not exists image_path text;
@@ -33,14 +40,46 @@ alter table public.life_posts
 add column if not exists author_avatar_url text;
 
 alter table public.life_posts
+add column if not exists source_urls text[] not null default '{}';
+
+alter table public.life_posts
+add column if not exists bot_id text;
+
+alter table public.life_posts
+add column if not exists idempotency_key text;
+
+alter table public.life_posts
+add column if not exists status text not null default 'published';
+
+alter table public.life_posts
+drop constraint if exists life_posts_category_check;
+
+alter table public.life_posts
+add constraint life_posts_category_check
+check (
+  category in ('租房', '二手', '拼车', '美食', '避雷', '找搭子', '活动', '求职', '热点')
+);
+
+alter table public.life_posts
 drop constraint if exists life_posts_body_check;
 
 alter table public.life_posts
 add constraint life_posts_body_check
 check (
-  char_length(body) <= 500
+  char_length(body) <= 2000
   and (char_length(body) >= 1 or image_path is not null)
 );
+
+alter table public.life_posts
+drop constraint if exists life_posts_status_check;
+
+alter table public.life_posts
+add constraint life_posts_status_check
+check (status in ('published', 'draft'));
+
+create unique index if not exists life_posts_idempotency_key_idx
+on public.life_posts(idempotency_key)
+where idempotency_key is not null;
 
 alter table public.life_posts enable row level security;
 
@@ -49,7 +88,7 @@ create policy "anyone can read public life posts"
 on public.life_posts
 for select
 to anon, authenticated
-using (true);
+using (status = 'published');
 
 drop policy if exists "anyone can publish short public life posts" on public.life_posts;
 create policy "anyone can publish short public life posts"
@@ -57,9 +96,14 @@ on public.life_posts
 for insert
 to anon, authenticated
 with check (
-  char_length(body) <= 500
+  char_length(body) <= 2000
   and (char_length(body) >= 1 or image_path is not null)
   and (author_id is null or auth.uid() = author_id)
+  and bot_id is null
+  and idempotency_key is null
+  and status = 'published'
+  and author_name <> 'vv'
+  and coalesce(author_handle, '') <> '@vv'
 );
 
 grant usage on schema public to anon, authenticated;

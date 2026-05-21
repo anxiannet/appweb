@@ -29,6 +29,7 @@ const suggestions = [
 
 const feedChannels: Channel[] = [
   "全部",
+  "热点",
   "租房",
   "二手",
   "拼车",
@@ -478,6 +479,10 @@ type LifePostRow = {
   place?: string | null;
   tags?: string[] | null;
   ai_summary?: string | null;
+  source_urls?: string[] | null;
+  bot_id?: string | null;
+  idempotency_key?: string | null;
+  status?: "published" | "draft" | null;
   image_path?: string | null;
   reply_count?: number | null;
 };
@@ -569,6 +574,7 @@ export function LifeFeed() {
     supabase
       .from("life_posts")
       .select("*")
+      .eq("status", "published")
       .order("created_at", { ascending: false })
       .limit(feedPageSize)
       .then(({ data, error }) => {
@@ -591,6 +597,7 @@ export function LifeFeed() {
         { event: "INSERT", schema: "public", table: "life_posts" },
         (payload) => {
           const nextPost = mapSupabasePost(payload.new as LifePostRow);
+          if (nextPost.status && nextPost.status !== "published") return;
 
           shouldScrollToBottomRef.current = true;
           setPosts((current) =>
@@ -632,6 +639,7 @@ export function LifeFeed() {
     const { data, error } = await supabase
       .from("life_posts")
       .select("*")
+      .eq("status", "published")
       .lt("created_at", new Date(oldestPost.createdAtMs).toISOString())
       .order("created_at", { ascending: false })
       .limit(feedPageSize);
@@ -897,6 +905,7 @@ export function LifeFeed() {
       tags: post.meta.tags,
       ai_summary: post.meta.summary,
       image_path: post.imagePath,
+      status: "published",
     };
     const { data, error } = await supabase!
       .from("life_posts")
@@ -2270,6 +2279,27 @@ function PostBubble({
                 {isExpanded ? "收起" : "展开"}
               </button>
             ) : null}
+            {post.sourceUrls?.length ? (
+              <div
+                className={`mt-2 space-y-1 border-t pt-2 text-xs ${
+                  isMine ? "border-white/25 text-white/78" : "border-black/10 text-black/55"
+                }`}
+              >
+                {post.sourceUrls.slice(0, 5).map((url, index) => (
+                  <a
+                    key={url}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`block truncate underline-offset-2 hover:underline ${
+                      isMine ? "text-white/85" : "text-leaf"
+                    }`}
+                  >
+                    来源 {index + 1}
+                  </a>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -2584,6 +2614,9 @@ function mapSupabasePost(row: LifePostRow): FeedPost {
     body: row.body,
     imagePath: row.image_path ?? undefined,
     imageUrl: row.image_path ? getPublicImageUrl(row.image_path) : undefined,
+    sourceUrls: row.source_urls ?? [],
+    botId: row.bot_id ?? undefined,
+    status: row.status ?? "published",
     createdAt: formatRelativeTime(row.created_at),
     createdAtMs,
     replies: row.reply_count ?? 0,

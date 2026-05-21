@@ -7,7 +7,8 @@ export type Channel =
   | "避雷"
   | "找搭子"
   | "活动"
-  | "求职";
+  | "求职"
+  | "热点";
 
 export type StructuredMeta = {
   category: Exclude<Channel, "全部">;
@@ -30,6 +31,9 @@ export type FeedPost = {
   body: string;
   imagePath?: string;
   imageUrl?: string;
+  sourceUrls?: string[];
+  botId?: string;
+  status?: "published" | "draft";
   createdAt: string;
   createdAtMs: number;
   replies: number;
