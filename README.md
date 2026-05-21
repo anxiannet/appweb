@@ -29,6 +29,7 @@ npm run dev
 NEXT_PUBLIC_SUPABASE_URL=你的项目 URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=你的 publishable key
 SUPABASE_SERVICE_ROLE_KEY=你的 service role key，仅服务端使用
+SUPABASE_SECRET_KEY=也支持 Supabase 新版 sb_secret_... key，仅服务端使用
 VV_BOT_API_TOKEN=本地 vv bot 调用网站 API 的 token
 ```
 
