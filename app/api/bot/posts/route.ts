@@ -16,6 +16,7 @@ type BotPostRequest = {
 };
 
 const allowedSlots = new Set(["morning", "noon", "evening", "test"]);
+const vvBotAvatarUrl = "/avatars/vv-bot.png";
 
 export async function POST(request: Request) {
   const expectedToken = process.env.VV_BOT_API_TOKEN;
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
       author_name: "vv",
       author_handle: "@vv",
       author_avatar_index: null,
-      author_avatar_url: null,
+      author_avatar_url: vvBotAvatarUrl,
       category: "热点",
       tags: payload!.tags ?? ["vv整理", "AI整理", "新加坡"],
       ai_summary: payload!.summary!,
@@ -109,7 +110,7 @@ function validatePayload(payload: BotPostRequest | null) {
   if (!payload.summary || payload.summary.length > 240) return "summary is required and must be 240 characters or fewer";
   if (!Array.isArray(payload.source_urls) || payload.source_urls.length === 0) return "source_urls must be a non-empty array";
   if (!payload.source_urls.every((url) => typeof url === "string" && /^https?:\/\//.test(url))) return "source_urls must contain HTTP URLs";
-  if (!payload.idempotency_key || !/^vv-\d{4}-\d{2}-\d{2}-(morning|noon|evening|test)$/.test(payload.idempotency_key)) {
+  if (!payload.idempotency_key || !/^vv-\d{4}-\d{2}-\d{2}-(morning|noon|evening|test)(?:-[a-z0-9]+)*$/.test(payload.idempotency_key)) {
     return "idempotency_key is invalid";
   }
   if (!payload.publish_slot || !allowedSlots.has(payload.publish_slot)) return "publish_slot is invalid";

@@ -19,6 +19,7 @@ import type { Channel, FeedPost, StructuredMeta } from "@/lib/types";
 import type { User } from "@supabase/supabase-js";
 
 const unifiedCategory: FeedPost["meta"]["category"] = "找搭子";
+const vvBotAvatarUrl = "/avatars/vv-bot.png";
 
 const suggestions = [
   "NTU附近求租，预算1200",
@@ -2279,27 +2280,6 @@ function PostBubble({
                 {isExpanded ? "收起" : "展开"}
               </button>
             ) : null}
-            {post.sourceUrls?.length ? (
-              <div
-                className={`mt-2 space-y-1 border-t pt-2 text-xs ${
-                  isMine ? "border-white/25 text-white/78" : "border-black/10 text-black/55"
-                }`}
-              >
-                {post.sourceUrls.slice(0, 5).map((url, index) => (
-                  <a
-                    key={url}
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`block truncate underline-offset-2 hover:underline ${
-                      isMine ? "text-white/85" : "text-leaf"
-                    }`}
-                  >
-                    来源 {index + 1}
-                  </a>
-                ))}
-              </div>
-            ) : null}
           </div>
         ) : null}
       </div>
@@ -2603,14 +2583,15 @@ function mapSupabasePost(row: LifePostRow): FeedPost {
   const createdAtMs = row.created_at
     ? new Date(row.created_at).getTime()
     : Date.now();
+  const isVvBot = row.bot_id === "vv" || row.author_handle === "@vv";
 
   return {
     id: String(row.id),
     author: row.author_name ?? "匿名用户",
     handle: row.author_handle ?? "@sg",
     avatar: (row.author_name ?? "匿").slice(0, 1),
-    avatarPoolIndex: row.author_avatar_index ?? undefined,
-    avatarUrl: row.author_avatar_url ?? undefined,
+    avatarPoolIndex: isVvBot ? undefined : (row.author_avatar_index ?? undefined),
+    avatarUrl: isVvBot ? vvBotAvatarUrl : (row.author_avatar_url ?? undefined),
     body: row.body,
     imagePath: row.image_path ?? undefined,
     imageUrl: row.image_path ? getPublicImageUrl(row.image_path) : undefined,
